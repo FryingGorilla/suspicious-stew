@@ -1,0 +1,596 @@
+import logger from '../../shared/logger';
+import {formatDuration, formatNumber, getHours, sleep, waitForEvent} from '../../shared/utils';
+import {Order} from '../../shared/types';
+import {Behavior} from '../behavior';
+import {ChatMessage} from 'prismarine-chat';
+import BotManager from '../bot-manager';
+import {clean, findItemSlot, getCleanLore} from '../bot-utils';
+
+export default class BazaarFlipper extends Behavior {
+	getName(): string {
+		return 'bz-flipper';
+	}
+	onlineMembers: string[] = [];
+
+	startingTotal?: number;
+	startingBuyLimit?: number;
+	startingSellLimit?: number;
+	totalWaitTime = 0;
+	cycles = 0;
+
+	constructor(manager: BotManager) {
+		super(manager);
+
+		this.manager.bot.on(
+			'spawn',
+			async () => {
+				if (this.state !== 'running') return;
+				if (this.activeActivity !== 'default') return;
+				if (manager.location !== (manager.bazaar.npcMode ? 'hub' : 'island')) return;
+
+				if (manager.config.options.failsafe.coopFailsafe) {
+					await this.coopFailsafe();
+				}
+			},
+			{persistent: true}
+		);
+		setInterval(async () => {
+			if (!manager.config.options.failsafe.antiAfk) return;
+			if (this.manager.onlineStatus !== 'online') return;
+			if (!this.manager.bazaar.npcMode) return;
+			if (manager.bot.pathfinder.isMoving()) return;
+			if (manager.bot.currentWindow) return;
+
+			manager.bot.setQuickBarSlot((manager.bot.quickBarSlot + 1) % 9);
+		}, 2500);
+
+		manager.bot.on(
+			'message',
+			async (chatMessage: ChatMessage, position: string) => {
+				if (!chatMessage) return;
+				if (position !== 'chat') return;
+				if (this.state !== 'running') return;
+
+				const message = chatMessage.toString().trimStart();
+
+				if (message.startsWith('This server is too laggy to use the Bazaar, sorry!')) {
+					await this.manager.sendChat('/l');
+					return;
+				}
+
+				const joinedName = /^([a-zA-Z0-9_]+) joined SkyBlock./.exec(message.toString())?.at(1);
+				const leftName = /^([a-zA-Z0-9_]+) left SkyBlock./.exec(message.toString())?.at(1);
+
+				if (joinedName) this.onlineMembers.push(joinedName);
+				if (leftName) {
+					const index = this.onlineMembers.findIndex((name) => name === leftName);
+					if (index !== -1) this.onlineMembers.splice(index, 1);
+				}
+
+				if (this.manager.config.options.failsafe.coopFailsafe) {
+					await this.coopFailsafe();
+				}
+			},
+			{persistent: true}
+		);
+	}
+
+	sentBuyLimitNotification = false;
+	sentSellLimitNotification = false;
+	async main() {
+		const manager = this.manager;
+
+		if (manager.onlineStatus !== 'online' || this.manager.spawnDelay) return;
+
+		await manager.updateLocation();
+		const goalLocation = this.manager.bazaar.npcMode ? 'hub' : 'island';
+		if (this.manager.location !== goalLocation) {
+			return await this.changeActivity('failsafe', async () => {
+				this.manager.postNotification(
+					`Failsafe activated`,
+					`Current location: ${this.manager.location}, goal location: ${goalLocation}`,
+					2
+				);
+				logger.debug(`Failsafe activated: Current location: ${this.manager.location}, goal location: ${goalLocation}`);
+
+				switch (goalLocation) {
+					case 'island': {
+						if (this.manager.location === 'skyblock' || this.manager.location === 'hub')
+							await this.manager.sendChat('/is');
+						else if (this.manager.location === 'limbo') await this.manager.sendChat('/l');
+						else if (this.manager.location === 'lobby') await this.manager.sendChat('/skyblock');
+						break;
+					}
+					case 'hub': {
+						if (this.manager.location === 'skyblock' || this.manager.location === 'island')
+							await this.manager.sendChat('/hub');
+						else if (this.manager.location === 'limbo') await this.manager.sendChat('/l');
+						else if (this.manager.location === 'lobby') await this.manager.sendChat('/skyblock');
+						break;
+					}
+				}
+			});
+		}
+
+		if (this.activeActivity !== 'default') return;
+
+		const isNewDay = await manager.bazaar.updateLimits();
+		await manager.bazaar.saveLimits();
+		if (isNewDay) {
+			this.cycles = 0;
+			this.startingBuyLimit = 0;
+			this.startingSellLimit = 0;
+			this.sentBuyLimitNotification = false;
+			this.sentSellLimitNotification = false;
+		}
+
+		if (!manager.hasCookie) {
+			if (manager.config.options.failsafe.npcMode && manager.config.options.failsafe.autoCookie) {
+				await manager.bazaar.changeNpcMode(true);
+				const cookie = manager.bazaar.getProduct('BOOSTER_COOKIE');
+				if (!cookie) throw Error('Failed to find product for booster cookie');
+				if (manager.getPurse() >= cookie.instantBuyPrice * 3) await this.buyCookie();
+				return;
+			} else {
+				logger.error('Stopping flipper: no cookie');
+				manager.postNotification(
+					'No Cookie Buff',
+					`Detected no cookie buff for ${manager.account.username}, stopping now. If you wish to continue, please purchase and consume a booster cookie manually.`,
+					3
+				);
+				this.stop();
+				return;
+			}
+		} else if (manager.bazaar.npcMode) await manager.bazaar.changeNpcMode(false);
+		await manager.bazaar.updateProducts();
+		await manager.bazaar.openManageOrders();
+		const total = manager.bazaar.getTotal();
+
+		this.postUpdate();
+
+		if (this.startingTotal === undefined) this.startingTotal = total;
+		if (this.startingBuyLimit === undefined) this.startingBuyLimit = manager.bazaar.usedBuyLimit;
+		if (this.startingSellLimit === undefined) this.startingSellLimit = manager.bazaar.usedSellLimit;
+
+		if (manager.bazaar.isAtLimit('buy') && !this.sentBuyLimitNotification) {
+			manager.postNotification(
+				'Buy limit reached',
+				`${manager.account.username} has reached it's ${formatNumber(
+					manager.bazaar.getTrueLimit('buy')
+				)} coin buy limit`,
+				2
+			);
+			this.sentBuyLimitNotification = true;
+		}
+
+		if (manager.bazaar.isAtLimit('sell')) {
+			if (!this.sentSellLimitNotification) {
+				manager.postNotification(
+					'Sell limit reached',
+					`${manager.account.username} has reached it's ${formatNumber(
+						manager.bazaar.getTrueLimit('sell')
+					)} coin sell limit`,
+					2
+				);
+				this.sentSellLimitNotification = true;
+			}
+			await sleep(1000 * 30);
+			return;
+		}
+		logger.debug([
+			`Found ${manager.bazaar.orders.length} orders worth ${formatNumber(
+				manager.bazaar.getOrdersWorth()
+			)} coins in total: ${JSON.stringify(manager.bazaar.orders)}`,
+			`Purse: ${formatNumber(this.manager.getPurse())}`,
+			`Inventory (${formatNumber(
+				manager.bazaar.getInvWorth()
+			)}) (${manager.getEmptyInventorySpace()} empty slots): ${JSON.stringify(
+				manager.bazaar.getBazaarProductsFromInv().map(({product, amount}) => ({id: product.id, amount}))
+			)}`,
+			`Spent: ${formatNumber(manager.bazaar.getSpent())}`,
+			`Total: ${formatNumber(total)}`,
+			`Starting total: ${formatNumber(this.startingTotal)}`,
+			`Profit: ${formatNumber(total - this.startingTotal)}`,
+			`Elapsed: ${formatDuration(this.timer.getElapsedTime())}`,
+			`Profit / h: ${formatNumber((total - this.startingTotal) / (this.timer.getElapsedTime() / 1000 / 60 / 60))}`,
+			`Sell limit: ${formatNumber(manager.bazaar.usedSellLimit)} / ${formatNumber(
+				manager.bazaar.getTrueLimit('sell')
+			)}`,
+			`Buy limit: ${formatNumber(manager.bazaar.usedBuyLimit)} / ${formatNumber(manager.bazaar.getTrueLimit('buy'))}`,
+			`Cycles: ${this.cycles}`,
+		]);
+		const inv = manager.bazaar.getBazaarProductsFromInv();
+		const last = inv[0]?.product;
+
+		await (async () => {
+			if (manager.bazaar.getRemainingOrderSpace('sell') > 0) {
+				if (manager.isInventoryFull()) return this.sellInvAndStash();
+
+				const order = manager.bazaar.orders.find(
+					(e) => !last || e.productId === last.id || (e.filled && e.type === 'sell')
+				);
+
+				if (order) {
+					if (order.undercutAmount === undefined || order.amount === undefined) throw Error('Weird order');
+					if (order.filled) {
+						if (order.type === 'sell') return manager.bazaar.claimOrder(order);
+						else {
+							if (manager.bazaar.fitsInv(order)) return manager.bazaar.claimOrder(order);
+							else if (manager.bazaar.getRemainingOrderSpace('sell') > 0) return manager.bazaar.flipOrder(order);
+						}
+					}
+					if (order.undercutAmount / order.amount > manager.config.options.orders.relistRatio)
+						return manager.bazaar.cancelOrder(order);
+				}
+				if (manager.bazaar.getRemainingOrderSpace('sell') > 0) {
+					if (inv.length === 1)
+						return this.manager.bazaar.createOrder({
+							productId: inv[0].product.id,
+							type: 'sell',
+						});
+					else if (inv.length > 1) return this.sellInvAndStash();
+				}
+			} else {
+				logger.debug('0 remaining space for sell offers');
+				const sellOffers = manager.bazaar.orders
+					.filter((order) => order.type === 'sell')
+					.sort((a, b) => {
+						if (last) {
+							if (a.productId === last.id && b.productId !== last.id) return -1;
+							if (a.productId !== last.id && b.productId === last.id) return 1;
+						}
+						const countDupes = (order: Order): number =>
+							manager.bazaar.orders.reduce(
+								(prev, order1) =>
+									order.type === order1.type && order.productId === order1.productId ? prev + 1 : prev,
+								0
+							);
+
+						return countDupes(b) - countDupes(a);
+					});
+				const order = sellOffers.at(0);
+				if (!order) return;
+
+				if (order.filled) return manager.bazaar.claimOrder(order);
+				return manager.bazaar.cancelOrder(order);
+			}
+			// Create buy orders and wait
+			{
+				const hours = getHours();
+
+				let remainingTime = 0;
+
+				for (const {start, end} of manager.config.options.general.schedule) {
+					if (hours < start) remainingTime += (end - start) * 60 * 60 * 1000;
+					else if (end > hours) remainingTime += (end - hours) * 60 * 60 * 1000;
+				}
+
+				const budget = Math.min(
+					manager.getPurse(),
+					manager.config.options.general.maxUsage - manager.bazaar.getSpent(),
+					manager.bazaar.getRemainingLimit('buy')
+				);
+				if (manager.bazaar.getRemainingOrderSpace('buy') > 0 && budget > 0) {
+					const orders = await this.getOptimalOrders(
+						budget,
+						manager.bazaar.getRemainingOrderSpace('buy'),
+						manager.bazaar.getRemainingLimit('buy'),
+						manager.bazaar.getRemainingLimit('sell'),
+						remainingTime / 60 / 60 / 1000,
+						manager.bazaar.orders,
+						this.timer.getElapsedTime(),
+						this.cycles
+					);
+					logger.debug([
+						`Creating buy orders...`,
+						`Budget: ${formatNumber(budget)}`,
+						`Max usage: ${formatNumber(manager.config.options.general.maxUsage)}`,
+						`Spent: ${formatNumber(manager.bazaar.getSpent())}`,
+						`Remaining space: ${manager.bazaar.getRemainingOrderSpace('buy')}`,
+						`Orders: ${JSON.stringify(orders)}`,
+					]);
+					for (const order of orders) await manager.bazaar.createOrder(order);
+				} else {
+					logger.debug([
+						`Not creating any more buy orders`,
+						`Remaining space: ${manager.bazaar.getRemainingOrderSpace('buy')}`,
+						`Budget: ${formatNumber(budget)}`,
+						`Purse: ${formatNumber(manager.getPurse())}`,
+						`Remaining buy limit: ${formatNumber(manager.bazaar.getRemainingLimit('buy'))}`,
+						`Remaining usage: ${formatNumber(manager.config.options.general.maxUsage - manager.bazaar.getSpent())}`,
+					]);
+				}
+
+				this.cycles++;
+
+				const avgBuyUsage = (manager.bazaar.usedBuyLimit - (this.startingBuyLimit ?? 0)) / this.cycles;
+				const avgSellUsage = (manager.bazaar.usedSellLimit - (this.startingSellLimit ?? 0)) / this.cycles;
+				const avgDuration =
+					(this.timer.getElapsedTime() - this.totalWaitTime - this.totalScheduledTimeout) / this.cycles;
+
+				const remainingCycles = Math.min(
+					manager.bazaar.getRemainingLimit('buy') / avgBuyUsage,
+					manager.bazaar.getRemainingLimit('sell') / avgSellUsage
+				);
+
+				const delay = (remainingTime - remainingCycles * avgDuration) / (remainingCycles - 1);
+
+				logger.debug([
+					`Buy limit: ${formatNumber(manager.bazaar.usedBuyLimit)} / ${formatNumber(
+						manager.bazaar.getTrueLimit('buy')
+					)} (starting: ${formatNumber(this.startingBuyLimit ?? -1)})`,
+					`Sell limit: ${formatNumber(manager.bazaar.usedSellLimit)} / ${formatNumber(
+						manager.bazaar.getTrueLimit('sell')
+					)} (starting: ${formatNumber(this.startingSellLimit ?? -1)})`,
+					`Cycles: ${formatNumber(this.cycles)}`,
+					`Elapsed time: ${formatDuration(this.timer.getElapsedTime())}`,
+					`Total wait time: ${formatDuration(this.totalWaitTime)}`,
+					`Total timeout: ${formatDuration(this.totalScheduledTimeout)}`,
+					`elapsedTime - totalWaitTime - totalScheduledTimeout: ${formatDuration(
+						this.timer.getElapsedTime() - this.totalWaitTime - this.totalScheduledTimeout
+					)}`,
+					`Avg. buy usage: ${formatNumber(avgBuyUsage)}`,
+					`Avg. sell usage: ${formatNumber(avgSellUsage)}`,
+					`Avg. duration: ${formatDuration(avgDuration)}`,
+					`Remaining time: ${formatDuration(remainingTime)}`,
+					`Remaining cycles: ${formatNumber(remainingCycles)}`,
+					`Delay: ${formatDuration(delay)}`,
+				]);
+
+				if (!isNaN(delay) && delay > 0) {
+					logger.debug(`Waiting for ${formatDuration(delay)}...`);
+					this.totalWaitTime += delay;
+					await sleep(delay);
+				}
+			}
+		})();
+	}
+
+	onStop() {
+		this.startingTotal = undefined;
+		this.startingBuyLimit = undefined;
+		this.startingSellLimit = undefined;
+		this.cycles = 0;
+		this.totalWaitTime = 0;
+		this.cycles = 0;
+	}
+
+	isLocationCorrect() {
+		const goalLocation = this.manager.bazaar.npcMode ? 'hub' : 'island';
+		return this.manager.location === goalLocation;
+	}
+
+	async getOptimalOrders(
+		budget: number,
+		orderCount: number,
+		buyLimit: number,
+		sellLimit: number,
+		goalTime: number,
+		orders: Order[],
+		elapsedTime: number,
+		cycleCount: number
+	): Promise<Order[]> {
+		try {
+			const response = await this.manager.waitForReply('solve', {
+				budget,
+				orderCount,
+				buyLimit,
+				sellLimit,
+				goalTime,
+				orders,
+				elapsedTime,
+				cycleCount,
+				filter: this.manager.config.options.filter,
+				maxOrderSize: this.manager.config.options.orders.maxOrderSize,
+			});
+			if (!response) throw new Error('No response');
+			if (typeof response !== 'object') throw new Error('Invalid response');
+			if (!('newOrders' in response)) throw new Error('Invalid response');
+			const {newOrders} = response;
+			if (!Array.isArray(newOrders)) throw new Error('Invalid response');
+			return newOrders;
+		} catch (err) {
+			logger.error(`Failed to get orders: ${err}`);
+			return [];
+		}
+	}
+
+	async sellInvAndStash(instantSell?: boolean) {
+		const bot = this.manager.bot;
+
+		logger.debug('Selling inventory and stash');
+
+		const MAX_FAILS = 10;
+		let fails = 0;
+		while (
+			this.state === 'running' &&
+			this.manager.onlineStatus === 'online' &&
+			this.isLocationCorrect() &&
+			this.manager.bazaar.getRemainingOrderSpace('sell') > 0 &&
+			this.manager.config.options.limits.sellLimit - this.manager.bazaar.usedSellLimit > 0
+		) {
+			try {
+				await this.manager.bazaar.openManageOrders();
+				await sleep(2000);
+
+				let isEmpty = false;
+
+				logger.debug('Picking up stash');
+				if (bot.currentWindow) bot.closeWindow(bot.currentWindow);
+				await this.manager.sendChat('/pickupstash');
+				const message = await this.manager.waitForMessage([/stash/], true);
+				if (message.includes('all') || message.includes("isn't holding any")) isEmpty = true;
+
+				if (instantSell) await this.manager.bazaar.instantSell();
+				else {
+					const items = this.manager.bazaar.getBazaarProductsFromInv();
+					if (items.length === 0) break;
+
+					const product = items[0].product;
+					await this.manager.bazaar.createOrder({productId: product.id, type: 'sell'});
+				}
+
+				if (isEmpty && this.manager.bazaar.getBazaarProductsFromInv().length === 0) break;
+			} catch (err) {
+				logger.error(`Error while selling inv: ${err}`);
+				if (fails++ > MAX_FAILS) break;
+			}
+		}
+		logger.debug('Finished selling inventory and stash');
+	}
+
+	async checkForOnlineMembers(): Promise<boolean> {
+		const {manager: account} = this;
+		const {bot} = account;
+		try {
+			bot.setQuickBarSlot(8); // Skyblock menu
+			bot.activateItem();
+			bot.deactivateItem();
+
+			await account.waitForBotEvent('windowOpen');
+			await account.clickItem('Profile Management');
+			if (!bot.currentWindow) throw new Error('Failed to open profile management');
+			const selected = bot.currentWindow
+				?.containerItems()
+				.findIndex((item) => getCleanLore(item).includes('You are playing on this profile!'));
+
+			if (selected === -1) {
+				throw new Error('Failed to find selected profile');
+			}
+
+			await account.clickSlot(selected, 1);
+
+			this.onlineMembers = bot.currentWindow
+				.containerItems()
+				.map((item) => {
+					const name = clean(item.customName ?? '')
+						.match(/(?:\[[a-zA-Z+]+\]\s+)?([a-zA-Z0-9_]+)/)
+						?.at(1);
+					if (!name) return;
+					const status = getCleanLore(item)
+						.match(/Status:\s+(Playing SkyBlock!|Not playing SkyBlock|Offline)/)
+						?.at(1);
+					if (!status) return;
+					if (name === bot.username) return;
+					if (status !== 'Playing SkyBlock!') return;
+
+					return name;
+				})
+				.filter((e) => (e === undefined ? false : true)) as string[];
+			return this.onlineMembers.length > 0;
+		} catch (err) {
+			logger.error(`Failed to check coop's online status: ${err}`);
+			return true;
+		}
+	}
+
+	coopFailsafe() {
+		return this.changeActivity('coopFailsafe', async () => {
+			if (!this.onlineMembers.length) return;
+			this.manager.postNotification(
+				'Co-op failsafe',
+				`Some Co-op members are online (${this.onlineMembers.join(', ')}), attempting to instant-sell everything...`,
+				2
+			);
+			await this.manager.sendChat(`/cc hellooo ${this.onlineMembers.join(', ')}! pls don't touch my orders!!!!`);
+
+			logger.debug('Liquidating');
+			while (
+				this.state === 'running' &&
+				this.manager.bazaar.usedSellLimit < this.manager.config.options.limits.sellLimit
+			) {
+				await this.manager.bazaar.openManageOrders();
+				if (!this.manager.bazaar.orders) break;
+
+				this.manager.bazaar.orders.sort((a, b) => (b.amount ?? 0) * (b.price ?? 0) - (a.amount ?? 0) * (a.price ?? 0));
+				const order = this.manager.bazaar.orders[0];
+
+				if (this.manager.isInventoryFull()) await this.sellInvAndStash(true);
+				if (order?.filled) await this.manager.bazaar.claimOrder(order);
+				else await this.manager.bazaar.cancelOrder(order);
+			}
+			logger.debug('Finished liquidating');
+
+			// Routine checks every 10 minutes
+			while (this.state === 'running') {
+				await sleep(10 * 60 * 1000);
+				if (this.manager.onlineStatus !== 'online' || this.manager.location !== 'island') return;
+				if (!(await this.checkForOnlineMembers())) break;
+			}
+		});
+	}
+
+	buyCookie() {
+		return this.changeActivity('buyingCookie', async () => {
+			logger.debug('Attempting to buy cookie');
+			try {
+				const bot = this.manager.bot;
+				const boosterCookie = this.manager.bazaar.getProduct('BOOSTER_COOKIE');
+				if (!boosterCookie) {
+					logger.error(`Failed to get the booster cookie product`);
+					return;
+				}
+
+				this.manager.postNotification('Auto Cookie', 'Attempting to buy a new Booster Cookie', 2);
+
+				if (findItemSlot(boosterCookie.name, bot.inventory, true) === -1) {
+					if (this.manager.isInventoryFull()) {
+						await this.manager.bazaar.instantSell(this.manager.bazaar.getBazaarProductsFromInv()[0]?.product);
+					}
+					await this.manager.bazaar.instantBuy(boosterCookie, 1);
+				}
+				if (bot.currentWindow) bot.closeWindow(bot.currentWindow);
+
+				await sleep(1000);
+				const slot = findItemSlot(boosterCookie.name, bot?.inventory, true);
+				if (slot === -1) {
+					logger.error(
+						`Failed to find cookie (${boosterCookie.name}) from inventory [${bot?.inventory
+							?.items()
+							?.map((e) => clean(e?.customName ?? 'empty'))
+							?.join(', ')}]`
+					);
+					return;
+				}
+
+				logger.debug('Consuming cookie...');
+				bot.setQuickBarSlot(0);
+				if (slot !== bot?.quickBarSlot) await bot?.moveSlotItem(slot, bot?.inventory?.hotbarStart + bot?.quickBarSlot);
+				await sleep(250);
+				logger.debug(`${JSON.stringify(bot?.inventory?.slots[bot?.inventory?.hotbarStart + bot?.quickBarSlot])}`);
+				bot?.activateItem();
+				bot?.deactivateItem();
+				await this.manager.waitForBotEvent('windowOpen');
+				await this.manager.clickItem('Consume Cookie', 0, waitForEvent(bot._client, 'window_items'));
+			} catch (err) {
+				logger.error(`Auto cookie failed: ${err}`);
+			}
+		});
+	}
+
+	serialize() {
+		return {
+			behaviorName: this.getName(),
+			state: this.state,
+			activeActivity: this.activeActivity,
+			isInTimeout: this.isInTimeout,
+			elapsedTime: this.timer.getElapsedTime(),
+
+			orders: this.manager.bazaar.orders,
+			ordersWorth: this.manager.bazaar.getOrdersWorth(),
+			inventoryWorth: this.manager.bazaar.getInvWorth(),
+			purse: this.manager.getPurse(),
+			spent: this.manager.bazaar.getSpent(),
+			total: this.manager.bazaar.getTotal(),
+			startingTotal: this.startingTotal,
+			npcMode: this.manager.bazaar.npcMode,
+			onlineMembers: this.onlineMembers,
+			startingBuyLimit: this.startingBuyLimit,
+			startingSellLimit: this.startingSellLimit,
+			usedBuyLimit: this.manager.bazaar.usedBuyLimit,
+			usedSellLimit: this.manager.bazaar.usedSellLimit,
+			sellLimit: this.manager.bazaar.getTrueLimit('sell'),
+			buyLimit: this.manager.bazaar.getTrueLimit('buy'),
+		};
+	}
+}

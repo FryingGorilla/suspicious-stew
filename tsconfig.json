@@ -1,0 +1,22 @@
+{
+	"compilerOptions": {
+		"module": "commonjs",
+		"target": "es2022",
+		"sourceMap": true,
+		"outDir": "dist",
+		"allowJs": true,
+		"esModuleInterop": true,
+		"skipLibCheck": true,
+		"resolveJsonModule": true,
+		"moduleResolution": "node",
+		"strict": true,
+		"typeRoots": ["node_modules/@types", "./src/types"],
+		// TypeORM
+		"emitDecoratorMetadata": true,
+		"experimentalDecorators": true
+	},
+	"include": ["src/**/*"],
+	"ts-node": {
+		"require": ["tsconfig-paths/register"]
+	}
+}

@@ -1,0 +1,7 @@
+node_modules
+
+dist
+executables
+
+.env
+.env.local
