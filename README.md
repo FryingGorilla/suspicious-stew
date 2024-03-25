@@ -1,2 +1,2 @@
 # suspicious-stew
-Mineflayer based Hypixel SkyBlock bot for Bazaar flipping
+Mineflayer based Hypixel SkyBlock bot for Bazaar flipping.
