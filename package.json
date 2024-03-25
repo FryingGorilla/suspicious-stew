@@ -14,7 +14,8 @@
     "build": "yarn && tsc && yarn package",
     "package": "concurrently \"yarn package:main\" \"yarn package:bot\"",
     "package:main": "pkg src/main --compress GZip --output executables/main/%npm_package_name%-%npm_package_mainVersion%",
-    "package:bot": "pkg src/bot --compress GZip --output executables/bot/bot-%npm_package_botVersion%"
+    "package:bot": "pkg src/bot --compress GZip --output executables/bot/bot-%npm_package_botVersion%",
+    "upload": "node ./scripts/upload.js"
   },
   "dependencies": {
     "@types/compression": "^1.7.5",
