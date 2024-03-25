@@ -1,0 +1,14 @@
+{
+    "bin": "../../dist/bot/index.js",
+    "pkg": {
+        "scripts": [
+            "../../dist/bot/**/*.js",
+            "../../dist/shared/**/*.js"
+        ],
+        "targets": [
+            "node18-win-x64",
+            "node18-macos-x64",
+            "node18-linux-x64"
+        ]
+    }
+}

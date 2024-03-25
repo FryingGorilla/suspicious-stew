@@ -1,0 +1,19 @@
+{
+    "bin": "../../dist/main/index.js",
+    "pkg": {
+        "scripts": [
+            "../../dist/main/**/*.js",
+            "../../dist/shared/**/*.js"
+        ],
+        "assets": [
+            "../../node_modules/ngrok/bin/*",
+            "../../node_modules/sqlite3/**/*.node",
+            "../../node_modules/axios/dist/node/axios.cjs"
+        ],
+        "targets": [
+            "node18-win-x64",
+            "node18-macos-x64",
+            "node18-linux-x64"
+        ]
+    }
+}
