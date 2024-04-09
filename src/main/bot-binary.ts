@@ -3,6 +3,7 @@ import path from 'path';
 import fs from 'fs';
 import {BIN_DIR, RELEASES_URL} from '../shared/globals';
 import logger from '../shared/logger';
+import EventEmitter from 'events';
 
 export async function getBotBinary(): Promise<string> {
 	const getSuffix = () => {
@@ -10,11 +11,31 @@ export async function getBotBinary(): Promise<string> {
 		if (process.platform === 'darwin') return 'macos';
 		return 'linux';
 	};
-	return downloadLatest(new RegExp(`bot-\\d+.\\d+.\\d+-${getSuffix()}`));
+	return downloadLatest(new RegExp(`^bot-\\d+.\\d+.\\d+-${getSuffix()}$`));
 }
 
+const downloads: Record<string, {download: Promise<string>; url: string}> = {};
 const downloadExecutable = async (url: string, filename: string) => {
+	if (downloads[filename]) return downloads[filename].download;
 	logger.info(`Downloading ${filename} from ${url}`);
+
+	const emitter = new EventEmitter();
+	downloads[filename] = {
+		download: new Promise((resolve, reject) => {
+			const downloadedListener = (fullPath: string) => {
+				emitter.removeListener('error', errorListener);
+				resolve(fullPath);
+			};
+			const errorListener = (err: unknown) => {
+				emitter.removeListener('downloaded', downloadedListener);
+				reject(err);
+			};
+			emitter.once('downloaded', downloadedListener);
+			emitter.once('error', errorListener);
+		}),
+		url,
+	};
+
 	try {
 		const response = await axios({url, responseType: 'stream'});
 		const fullPath = path.join(BIN_DIR, filename);
@@ -27,9 +48,14 @@ const downloadExecutable = async (url: string, filename: string) => {
 			writer.on('finish', resolve);
 			writer.on('error', reject);
 		});
+		emitter.emit('downloaded', fullPath);
 		return fullPath;
 	} catch (err) {
+		emitter.emit('error', new Error(`Download from ${url} failed: ${err}`));
 		throw new Error(`Download from ${url} failed: ${err}`);
+	} finally {
+		logger.info('Download finished');
+		delete downloads[filename];
 	}
 };
 
@@ -56,7 +82,7 @@ const downloadLatest = async (nameRegex: RegExp) => {
 	if (current) {
 		try {
 			const currentId = await fs.promises.readFile(path.join(current.path, current.name + '.id'), 'utf8');
-			if (current && currentId === asset.id) return path.join(BIN_DIR, current.name);
+			if (Number(currentId) === asset.id) return path.join(BIN_DIR, current.name);
 		} catch (err) {
 			logger.error(`Failed to read ${current.name}.id: ${err}`);
 		}
