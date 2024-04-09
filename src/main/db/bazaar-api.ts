@@ -115,8 +115,7 @@ export function bazaarApi() {
 			filter,
 			budget,
 			orderCount,
-			buyLimit,
-			sellLimit,
+			remainingDailyLimit,
 			goalTime,
 			orders,
 			elapsedTime,
@@ -299,14 +298,14 @@ export function bazaarApi() {
 				};
 			};
 			const items = await getItems();
-			const divider = Math.max(buyLimit, sellLimit) / 1000;
+			const divider = remainingDailyLimit / 1000;
 			const {maxValue, selectedIndices} = solve(
 				items?.map((item) => ({
 					id: item.id,
 					value: item.profitability,
 					weight: Math.round(Math.max(item.buyUsage, item.sellUsage) / divider),
 				})) ?? [],
-				Math.round(Math.min(buyLimit, sellLimit) / goalTime / divider),
+				Math.round(remainingDailyLimit / goalTime / divider),
 				orderCount
 			);
 			return {

@@ -94,8 +94,7 @@ export type BazaarApiArgs = {
 	filter: BotConfigOptions['filter'];
 	budget: number;
 	orderCount: number;
-	buyLimit: number;
-	sellLimit: number;
+	remainingDailyLimit: number;
 	goalTime: number;
 	orders: Order[];
 	elapsedTime: number;

@@ -24,13 +24,9 @@ type Options = {
 		relistRatio: number;
 		maxOrderSize: number;
 	};
-	limits: {
-		sellLimit: number;
-		buyLimit: number;
-	};
 	general: {
 		maxUsage: number;
-		schedule: {start: number; end: number}[];
+		timeouts: {start: number; end: number}[];
 	};
 	failsafe: {
 		coopFailsafe: boolean;
@@ -61,16 +57,9 @@ export default class BotConfig {
 			relistRatio: 10 / 100,
 			maxOrderSize: 5000,
 		},
-		limits: {
-			sellLimit: 10_000_000_000,
-			buyLimit: 10_000_000_000,
-		},
 		general: {
 			maxUsage: 40_000_000,
-			schedule: [
-				{start: 0, end: 13},
-				{start: 13, end: 24},
-			],
+			timeouts: [{start: 12, end: 16}],
 		},
 		failsafe: {
 			coopFailsafe: false,

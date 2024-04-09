@@ -82,18 +82,34 @@ export abstract class Behavior {
 	}
 
 	isScheduled(): boolean {
-		let isScheduled = false;
+		let isScheduled = true;
 		const hours = getHours();
 
-		for (const {start, end} of this.manager.config.options.general.schedule) {
-			if (start <= hours && hours <= end) {
-				isScheduled = true;
+		for (const {start, end} of this.manager.config.options.general.timeouts) {
+			if (start >= hours && hours <= end) {
+				isScheduled = false;
 				break;
 			}
 		}
 		logger.debug(`utc hours ${hours}, scheduled: ${isScheduled}`);
 
 		return isScheduled;
+	}
+
+	getRemainingTime(): number {
+		const hours = getHours();
+		let remainingTime = (24 - hours) * 60 * 60 * 1000;
+
+		for (const {start, end} of this.manager.config.options.general.timeouts) {
+			if (end < hours) continue;
+			if (start < hours) {
+				remainingTime -= (end - hours) * 60 * 60 * 1000;
+			} else {
+				remainingTime -= (end - start) * 60 * 60 * 1000;
+			}
+		}
+
+		return remainingTime;
 	}
 
 	pause(): void {

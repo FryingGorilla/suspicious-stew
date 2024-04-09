@@ -11,8 +11,9 @@ import {ChatMessage} from 'prismarine-chat';
 import BotManager from './bot-manager';
 
 export default class Bazaar {
-	usedBuyLimit = 0;
-	usedSellLimit = 0;
+	static readonly DAILY_LIMIT = 15_000_000_000;
+
+	usedDailyLimit = 0;
 	limitResetTime = 0;
 	products: Product[] = [];
 	orders: Order[] = [];
@@ -24,20 +25,13 @@ export default class Bazaar {
 			'message',
 			(message: ChatMessage) => {
 				if (
+					message.toString().startsWith('[Bazaar] You reached the daily limit of coins you may spend on the Bazaar!') ||
 					message
 						.toString()
 						.startsWith('[Bazaar] You reached the daily limit in items value that you may sell on the bazaar!')
 				) {
-					logger.debug('Sell limit reached');
-					this.usedSellLimit = this.manager.config.options.limits.sellLimit;
-				}
-				if (
-					message
-						.toString()
-						.startsWith('[Bazaar] You reached the daily limit of coins you may create orders for on the Bazaar!')
-				) {
-					logger.debug('Buy limit reached');
-					this.usedBuyLimit = this.manager.config.options.limits.buyLimit;
+					logger.debug('Daily limit reached');
+					this.usedDailyLimit = Bazaar.DAILY_LIMIT;
 				}
 			},
 			{persistent: true}
@@ -45,29 +39,27 @@ export default class Bazaar {
 		this.loadLimits();
 	}
 
-	async updateLimits() {
+	async updateLimit() {
 		const currentDate = new Date();
 		const nextUTCDay = new Date(currentDate);
 		nextUTCDay.setUTCDate(currentDate.getUTCDate() + 1);
 		nextUTCDay.setUTCHours(0, 0, 0, 0);
 
 		if (this.limitResetTime <= currentDate.getTime()) {
-			logger.debug('New day, resetting limits back to zero');
+			logger.debug('New day, resetting used daily limit back to zero');
 
 			this.limitResetTime = nextUTCDay.getTime();
-			this.usedBuyLimit = 0;
-			this.usedSellLimit = 0;
-			await this.saveLimits();
+			this.usedDailyLimit = 0;
+			await this.saveLimit();
 			return true;
 		}
 
 		return false;
 	}
 
-	async saveLimits() {
+	async saveLimit() {
 		const data = {
-			usedBuyLimit: this.usedBuyLimit,
-			usedSellLimit: this.usedSellLimit,
+			usedDailyLimit: this.usedDailyLimit,
 			limitResetTime: this.limitResetTime,
 		};
 
@@ -83,9 +75,8 @@ export default class Bazaar {
 		const [error, data] = await jsoncSafe.read(globals.ACCOUNT_LIMIT_CACHE(this.manager.account.uuid));
 		if (error) logger.error(`Error loading limits for ${this.manager.account.username}: ${error}`);
 
-		const {usedBuyLimit, usedSellLimit, limitResetTime} = data;
-		this.usedBuyLimit = usedBuyLimit ?? 0;
-		this.usedSellLimit = usedSellLimit ?? 0;
+		const {usedDailyLimit, limitResetTime} = data;
+		this.usedDailyLimit = usedDailyLimit ?? 0;
 		this.limitResetTime = limitResetTime ?? 0;
 
 		return this;
@@ -239,12 +230,9 @@ export default class Bazaar {
 					this.manager.config.options.orders.maxOrders = this.orders.length;
 					await this.manager.config.save();
 				}
-			} else if (lore.includes('You reached the daily limit of coins you may create orders for on the Bazaar!')) {
-				logger.debug('Buy limit reached');
-				this.usedBuyLimit = this.manager.config.options.limits.buyLimit;
-			} else if (lore.includes('You reached the daily limit in items value that you may sell on the bazaar!')) {
-				logger.debug('Sell limit reached');
-				this.usedBuyLimit = this.manager.config.options.limits.sellLimit;
+			} else if (lore.includes('You reached the daily limit')) {
+				logger.debug('Daily limit reached');
+				this.usedDailyLimit = Bazaar.DAILY_LIMIT;
 			} else {
 				let price = Number(/Price per unit: ([\d,]*\.?\d)/.exec(lore)?.at(1)?.replaceAll(',', ''));
 				if (isNaN(price)) {
@@ -258,8 +246,7 @@ export default class Bazaar {
 					logger.error(`Failed to find amount for ${JSON.stringify(order)} ${lore}`);
 				}
 
-				if (order.type === 'buy') this.usedBuyLimit += amount * price;
-				else this.usedSellLimit += amount * price;
+				this.usedDailyLimit += amount * price;
 
 				this.expectedOrders++;
 				await this.manager.clickItem(
@@ -363,7 +350,7 @@ export default class Bazaar {
 			}
 
 			await this.manager.clickItem('Flip Order', 0, this.manager.writeToSign(String(topPrice)));
-			this.usedSellLimit += amount * topPrice;
+			this.usedDailyLimit += amount * topPrice;
 		} catch (err) {
 			logger.error(`Failed to flip order ${JSON.stringify(order)}: ${err}`);
 		}
@@ -398,7 +385,7 @@ export default class Bazaar {
 			await this.manager.waitForBotEvent('windowOpen');
 			await sleep(250);
 			await this.manager.clickItem('Custom Amount');
-			this.usedBuyLimit += amount * product.instantBuyPrice;
+			this.usedDailyLimit += amount * product.instantBuyPrice;
 		} catch (err) {
 			logger.error(`Error while instant-buying ${amount}x ${product.id}: ${err}`);
 		}
@@ -408,13 +395,13 @@ export default class Bazaar {
 		logger.debug(`Instant-selling ${product ? product.id : 'INVENTORY'}`);
 		try {
 			if (product) {
-				this.usedSellLimit +=
+				this.usedDailyLimit +=
 					(this.getBazaarProductsFromInv().find((e) => e.product === product)?.amount ?? 0) * product.instantSellPrice;
 				await this.openBz(product.name);
 				await this.manager.clickItem(product.name);
 				await this.manager.clickItem('Sell Instantly');
 			} else {
-				this.usedSellLimit += this.getBazaarProductsFromInv().reduce(
+				this.usedDailyLimit += this.getBazaarProductsFromInv().reduce(
 					(sum, {product, amount}) => product.instantSellPrice * amount,
 					0
 				);
@@ -660,19 +647,18 @@ export default class Bazaar {
 		return products;
 	}
 
-	isAtLimit(type: 'buy' | 'sell'): boolean {
-		return this.getRemainingLimit(type) <= 0;
+	isAtLimit(): boolean {
+		return this.getRemainingLimit() <= 0;
 	}
 
-	getTrueLimit(type: 'buy' | 'sell'): number {
-		if (type === 'buy') return this.manager.config.options.limits.buyLimit;
+	getTrueLimit(): number {
 		return (
-			this.manager.config.options.limits.sellLimit -
+			Bazaar.DAILY_LIMIT -
 			(this.manager.config.options.failsafe.coopFailsafe ? this.manager.config.options.general.maxUsage * 5 : 0)
 		);
 	}
 
-	getRemainingLimit(type: 'buy' | 'sell'): number {
-		return this.getTrueLimit(type) - (type === 'buy' ? this.usedBuyLimit : this.usedSellLimit);
+	getRemainingLimit(): number {
+		return this.getTrueLimit() - this.usedDailyLimit;
 	}
 }

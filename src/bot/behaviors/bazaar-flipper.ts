@@ -1,10 +1,11 @@
 import logger from '../../shared/logger';
-import {formatDuration, formatNumber, getHours, sleep, waitForEvent} from '../../shared/utils';
+import {formatDuration, formatNumber, sleep, waitForEvent} from '../../shared/utils';
 import {Order} from '../../shared/types';
 import {Behavior} from '../behavior';
 import {ChatMessage} from 'prismarine-chat';
 import BotManager from '../bot-manager';
 import {clean, findItemSlot, getCleanLore} from '../bot-utils';
+import Bazaar from '../bazaar';
 
 export default class BazaarFlipper extends Behavior {
 	getName(): string {
@@ -13,8 +14,7 @@ export default class BazaarFlipper extends Behavior {
 	onlineMembers: string[] = [];
 
 	startingTotal?: number;
-	startingBuyLimit?: number;
-	startingSellLimit?: number;
+	startingDailyLimit?: number;
 	totalWaitTime = 0;
 	cycles = 0;
 
@@ -77,6 +77,7 @@ export default class BazaarFlipper extends Behavior {
 
 	sentBuyLimitNotification = false;
 	sentSellLimitNotification = false;
+
 	async main() {
 		const manager = this.manager;
 
@@ -114,15 +115,14 @@ export default class BazaarFlipper extends Behavior {
 
 		if (this.activeActivity !== 'default') return;
 
-		const isNewDay = await manager.bazaar.updateLimits();
-		await manager.bazaar.saveLimits();
+		const isNewDay = await manager.bazaar.updateLimit();
+		await manager.bazaar.saveLimit();
 		if (isNewDay) {
 			this.cycles = 0;
-			this.startingBuyLimit = 0;
-			this.startingSellLimit = 0;
+			this.startingDailyLimit = 0;
 			this.sentBuyLimitNotification = false;
 			this.sentSellLimitNotification = false;
-		}
+		} else if (manager.bazaar.isAtLimit()) return;
 
 		if (!manager.hasCookie) {
 			if (manager.config.options.failsafe.npcMode && manager.config.options.failsafe.autoCookie) {
@@ -149,34 +149,8 @@ export default class BazaarFlipper extends Behavior {
 		this.postUpdate();
 
 		if (this.startingTotal === undefined) this.startingTotal = total;
-		if (this.startingBuyLimit === undefined) this.startingBuyLimit = manager.bazaar.usedBuyLimit;
-		if (this.startingSellLimit === undefined) this.startingSellLimit = manager.bazaar.usedSellLimit;
+		if (this.startingDailyLimit === undefined) this.startingDailyLimit = manager.bazaar.usedDailyLimit;
 
-		if (manager.bazaar.isAtLimit('buy') && !this.sentBuyLimitNotification) {
-			manager.postNotification(
-				'Buy limit reached',
-				`${manager.account.username} has reached it's ${formatNumber(
-					manager.bazaar.getTrueLimit('buy')
-				)} coin buy limit`,
-				2
-			);
-			this.sentBuyLimitNotification = true;
-		}
-
-		if (manager.bazaar.isAtLimit('sell')) {
-			if (!this.sentSellLimitNotification) {
-				manager.postNotification(
-					'Sell limit reached',
-					`${manager.account.username} has reached it's ${formatNumber(
-						manager.bazaar.getTrueLimit('sell')
-					)} coin sell limit`,
-					2
-				);
-				this.sentSellLimitNotification = true;
-			}
-			await sleep(1000 * 30);
-			return;
-		}
 		logger.debug([
 			`Found ${manager.bazaar.orders.length} orders worth ${formatNumber(
 				manager.bazaar.getOrdersWorth()
@@ -193,10 +167,8 @@ export default class BazaarFlipper extends Behavior {
 			`Profit: ${formatNumber(total - this.startingTotal)}`,
 			`Elapsed: ${formatDuration(this.timer.getElapsedTime())}`,
 			`Profit / h: ${formatNumber((total - this.startingTotal) / (this.timer.getElapsedTime() / 1000 / 60 / 60))}`,
-			`Sell limit: ${formatNumber(manager.bazaar.usedSellLimit)} / ${formatNumber(
-				manager.bazaar.getTrueLimit('sell')
-			)}`,
-			`Buy limit: ${formatNumber(manager.bazaar.usedBuyLimit)} / ${formatNumber(manager.bazaar.getTrueLimit('buy'))}`,
+
+			`Daily limit: ${formatNumber(manager.bazaar.usedDailyLimit)} / ${formatNumber(manager.bazaar.getTrueLimit())}`,
 			`Cycles: ${this.cycles}`,
 		]);
 		const inv = manager.bazaar.getBazaarProductsFromInv();
@@ -256,26 +228,18 @@ export default class BazaarFlipper extends Behavior {
 			}
 			// Create buy orders and wait
 			{
-				const hours = getHours();
-
-				let remainingTime = 0;
-
-				for (const {start, end} of manager.config.options.general.schedule) {
-					if (hours < start) remainingTime += (end - start) * 60 * 60 * 1000;
-					else if (end > hours) remainingTime += (end - hours) * 60 * 60 * 1000;
-				}
+				const remainingTime = this.getRemainingTime();
 
 				const budget = Math.min(
 					manager.getPurse(),
 					manager.config.options.general.maxUsage - manager.bazaar.getSpent(),
-					manager.bazaar.getRemainingLimit('buy')
+					manager.bazaar.getRemainingLimit()
 				);
 				if (manager.bazaar.getRemainingOrderSpace('buy') > 0 && budget > 0) {
 					const orders = await this.getOptimalOrders(
 						budget,
 						manager.bazaar.getRemainingOrderSpace('buy'),
-						manager.bazaar.getRemainingLimit('buy'),
-						manager.bazaar.getRemainingLimit('sell'),
+						manager.bazaar.getRemainingLimit(),
 						remainingTime / 60 / 60 / 1000,
 						manager.bazaar.orders,
 						this.timer.getElapsedTime(),
@@ -296,32 +260,25 @@ export default class BazaarFlipper extends Behavior {
 						`Remaining space: ${manager.bazaar.getRemainingOrderSpace('buy')}`,
 						`Budget: ${formatNumber(budget)}`,
 						`Purse: ${formatNumber(manager.getPurse())}`,
-						`Remaining buy limit: ${formatNumber(manager.bazaar.getRemainingLimit('buy'))}`,
+						`Remaining daily limit: ${formatNumber(manager.bazaar.getRemainingLimit())}`,
 						`Remaining usage: ${formatNumber(manager.config.options.general.maxUsage - manager.bazaar.getSpent())}`,
 					]);
 				}
 
 				this.cycles++;
 
-				const avgBuyUsage = (manager.bazaar.usedBuyLimit - (this.startingBuyLimit ?? 0)) / this.cycles;
-				const avgSellUsage = (manager.bazaar.usedSellLimit - (this.startingSellLimit ?? 0)) / this.cycles;
+				const avgUsage = (manager.bazaar.usedDailyLimit - (this.startingDailyLimit ?? 0)) / this.cycles;
 				const avgDuration =
 					(this.timer.getElapsedTime() - this.totalWaitTime - this.totalScheduledTimeout) / this.cycles;
 
-				const remainingCycles = Math.min(
-					manager.bazaar.getRemainingLimit('buy') / avgBuyUsage,
-					manager.bazaar.getRemainingLimit('sell') / avgSellUsage
-				);
+				const remainingCycles = manager.bazaar.getRemainingLimit() / avgUsage;
 
 				const delay = (remainingTime - remainingCycles * avgDuration) / (remainingCycles - 1);
 
 				logger.debug([
-					`Buy limit: ${formatNumber(manager.bazaar.usedBuyLimit)} / ${formatNumber(
-						manager.bazaar.getTrueLimit('buy')
-					)} (starting: ${formatNumber(this.startingBuyLimit ?? -1)})`,
-					`Sell limit: ${formatNumber(manager.bazaar.usedSellLimit)} / ${formatNumber(
-						manager.bazaar.getTrueLimit('sell')
-					)} (starting: ${formatNumber(this.startingSellLimit ?? -1)})`,
+					`Daily limit: ${formatNumber(manager.bazaar.usedDailyLimit)} / ${formatNumber(
+						manager.bazaar.getTrueLimit()
+					)} (starting: ${formatNumber(this.startingDailyLimit ?? 0)})`,
 					`Cycles: ${formatNumber(this.cycles)}`,
 					`Elapsed time: ${formatDuration(this.timer.getElapsedTime())}`,
 					`Total wait time: ${formatDuration(this.totalWaitTime)}`,
@@ -329,8 +286,7 @@ export default class BazaarFlipper extends Behavior {
 					`elapsedTime - totalWaitTime - totalScheduledTimeout: ${formatDuration(
 						this.timer.getElapsedTime() - this.totalWaitTime - this.totalScheduledTimeout
 					)}`,
-					`Avg. buy usage: ${formatNumber(avgBuyUsage)}`,
-					`Avg. sell usage: ${formatNumber(avgSellUsage)}`,
+					`Avg. limit usage: ${formatNumber(avgUsage)}`,
 					`Avg. duration: ${formatDuration(avgDuration)}`,
 					`Remaining time: ${formatDuration(remainingTime)}`,
 					`Remaining cycles: ${formatNumber(remainingCycles)}`,
@@ -348,8 +304,7 @@ export default class BazaarFlipper extends Behavior {
 
 	onStop() {
 		this.startingTotal = undefined;
-		this.startingBuyLimit = undefined;
-		this.startingSellLimit = undefined;
+		this.startingDailyLimit = undefined;
 		this.cycles = 0;
 		this.totalWaitTime = 0;
 		this.cycles = 0;
@@ -363,8 +318,7 @@ export default class BazaarFlipper extends Behavior {
 	async getOptimalOrders(
 		budget: number,
 		orderCount: number,
-		buyLimit: number,
-		sellLimit: number,
+		remainingDailyLimit: number,
 		goalTime: number,
 		orders: Order[],
 		elapsedTime: number,
@@ -374,8 +328,7 @@ export default class BazaarFlipper extends Behavior {
 			const response = await this.manager.waitForReply('solve', {
 				budget,
 				orderCount,
-				buyLimit,
-				sellLimit,
+				remainingDailyLimit,
 				goalTime,
 				orders,
 				elapsedTime,
@@ -406,8 +359,8 @@ export default class BazaarFlipper extends Behavior {
 			this.state === 'running' &&
 			this.manager.onlineStatus === 'online' &&
 			this.isLocationCorrect() &&
-			this.manager.bazaar.getRemainingOrderSpace('sell') > 0 &&
-			this.manager.config.options.limits.sellLimit - this.manager.bazaar.usedSellLimit > 0
+			(instantSell || this.manager.bazaar.getRemainingOrderSpace('sell') > 0) &&
+			Bazaar.DAILY_LIMIT - this.manager.bazaar.usedDailyLimit > 0
 		) {
 			try {
 				await this.manager.bazaar.openManageOrders();
@@ -495,10 +448,7 @@ export default class BazaarFlipper extends Behavior {
 			await this.manager.sendChat(`/cc hellooo ${this.onlineMembers.join(', ')}! pls don't touch my orders!!!!`);
 
 			logger.debug('Liquidating');
-			while (
-				this.state === 'running' &&
-				this.manager.bazaar.usedSellLimit < this.manager.config.options.limits.sellLimit
-			) {
+			while (this.state === 'running' && Bazaar.DAILY_LIMIT - this.manager.bazaar.usedDailyLimit > 0) {
 				await this.manager.bazaar.openManageOrders();
 				if (!this.manager.bazaar.orders) break;
 
@@ -585,12 +535,9 @@ export default class BazaarFlipper extends Behavior {
 			startingTotal: this.startingTotal,
 			npcMode: this.manager.bazaar.npcMode,
 			onlineMembers: this.onlineMembers,
-			startingBuyLimit: this.startingBuyLimit,
-			startingSellLimit: this.startingSellLimit,
-			usedBuyLimit: this.manager.bazaar.usedBuyLimit,
-			usedSellLimit: this.manager.bazaar.usedSellLimit,
-			sellLimit: this.manager.bazaar.getTrueLimit('sell'),
-			buyLimit: this.manager.bazaar.getTrueLimit('buy'),
+			startingDailyLimit: this.startingDailyLimit,
+			usedDailyLimit: this.manager.bazaar.usedDailyLimit,
+			dailyLimit: Bazaar.DAILY_LIMIT,
 		};
 	}
 }

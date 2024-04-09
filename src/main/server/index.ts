@@ -18,6 +18,7 @@ import {AppDataSource} from '../db/data-source';
 import {Notification} from '../db/entity/Notification';
 import {ChatLog} from '../db/entity/ChatLog';
 import fs from 'fs';
+import {BotBehaviorMetrics} from '../db/entity/BotBehaviorMetrics';
 
 export default class Server {
 	private static instance: Server;
@@ -132,6 +133,12 @@ export default class Server {
 						break;
 					}
 					case 'behavior-metrics': {
+						const {data, time} = mes as ChildToMain<'behavior-metrics'>;
+						AppDataSource.manager.insert(BotBehaviorMetrics, {
+							account_uuid: uuid,
+							time,
+							...data,
+						});
 						break;
 					}
 					case 'notification': {

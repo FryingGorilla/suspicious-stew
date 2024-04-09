@@ -1,5 +1,5 @@
 import inquirer from 'inquirer';
-import {getArgValue} from '../shared/utils';
+import {getArgValue, getFreePort} from '../shared/utils';
 import fs from 'fs';
 import {globals} from '../shared/globals';
 import logger from '../shared/logger';
@@ -11,7 +11,7 @@ type ConfigOptions = {
 	apiToken: string;
 	port: number;
 	password: string;
-	host: 'ngrok' | 'localhost' | 'public_ip' | 'LAN';
+	host: 'ngrok' | 'localhost' | 'WAN' | 'LAN';
 	ngrokToken?: string;
 };
 
@@ -33,12 +33,12 @@ export default class Config {
 
 	private constructor() {
 		const options = {
-			apiToken: getArgValue(['apiToken', 'token']),
+			apiToken: getArgValue(['apiToken', 'token', 'api-token', 'apiKey', 'key', 'api-key']),
 			port: Number(getArgValue(['port', 'p'])) || undefined,
-			password: getArgValue(['password', 'pass', 'auth']),
+			password: getArgValue(['password', 'pass', 'auth', 'pw']),
 			host: getArgValue(['host', 'h']),
 			name: getArgValue(['name', 'n']),
-			ngrokToken: getArgValue(['ngrokToken', 'ngrok']),
+			ngrokToken: getArgValue(['ngrokToken', 'ngrok', 'ngrok-token']),
 		};
 
 		// Load from file
@@ -98,12 +98,12 @@ export default class Config {
 								value: 'localhost',
 							},
 							{
-								name: 'LAN',
+								name: 'Use local IP (available on LAN only)',
 								value: 'LAN',
 							},
 							{
 								name: 'Use public IP (needs port forwarding)',
-								value: 'public_ip',
+								value: 'WAN',
 							},
 						],
 						default: this.options.host,
@@ -146,15 +146,17 @@ export default class Config {
 		}
 
 		let isValid = true;
-		const required = ['apiToken', 'port', 'password', 'host', 'name'] as const;
+		const required = ['apiToken', 'password', 'host', 'name'] as const;
 		required.forEach((key) => {
 			if (this.options[key] === undefined) {
-				logger.error(`${key} is required but missing`);
+				logger.error(`'${key}' is required but missing`);
 				isValid = false;
 			}
 		});
 
-		if (isNaN(this.options.port)) {
+		if (this.options.port === undefined) {
+			this.options.port = await getFreePort();
+		} else if (isNaN(this.options.port)) {
 			logger.error('Port must be a number');
 			isValid = false;
 		}
@@ -165,7 +167,13 @@ export default class Config {
 		}
 
 		if (this.options.host === 'ngrok' && !this.options.ngrokToken) {
-			logger.error(`Failed to load main config`);
+			logger.error(`'ngrokToken' is required when host is 'ngrok'`);
+			isValid = false;
+		}
+
+		const validHosts = ['ngrok', 'WAN', 'LAN', 'localhost'];
+		if (!validHosts.includes(this.options.host)) {
+			logger.error(`'host' must be one of ${validHosts.map((s) => `'${s}'`).join(', ')}`);
 			isValid = false;
 		}
 

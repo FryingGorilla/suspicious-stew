@@ -161,7 +161,7 @@ export default class BotManager {
 		const events = ['beforeExit', 'SIGHUP', 'SIGINT', 'SIGTERM'];
 		events.forEach((event) => {
 			process.on(event, async () => {
-				withTimeout(this.bazaar.saveLimits(), 5000)
+				withTimeout(this.bazaar.saveLimit(), 5000)
 					.catch((err) => logger.error(err))
 					.finally(() => {
 						process.exit(0);

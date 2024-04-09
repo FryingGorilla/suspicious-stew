@@ -5,6 +5,7 @@ import fs from 'fs';
 import {GenericFunction, Persistent} from './types';
 import logger from './logger';
 import EventEmitter, {once} from 'events';
+import net from 'net';
 
 export function getArgValue(argName: string | string[], defaultValue?: string) {
 	const args = process.argv.slice(2);
@@ -170,3 +171,14 @@ export function formatDuration(duration: number) {
 
 	return parts.join(', ');
 }
+export const getFreePort = async (): Promise<number> => {
+	return new Promise((resolve, reject) => {
+		const srv = net.createServer();
+		srv.listen(0, () => {
+			const address = srv.address();
+			if (!address) return srv.close(() => reject('Failed to get free port'));
+			const {port} = typeof address === 'string' ? (JSON.parse(address) as net.AddressInfo) : address;
+			srv.close(() => resolve(port));
+		});
+	});
+};
