@@ -56,7 +56,7 @@ async function main() {
 		url = `http://localhost:${config.options.port}`;
 	} else if (config.options.host === 'LAN') {
 		url = `http://${ip.address()}:${config.options.port}`;
-	} else if (config.options.host === 'public_ip') {
+	} else if (config.options.host === 'WAN') {
 		url = String((await axios.get('https://ipinfo.io/ip')).data);
 	} else if (config.options.host === 'ngrok' && config.options.ngrokToken) {
 		const options: Ngrok.Options = {authtoken: config.options.ngrokToken, addr: config.options.port};

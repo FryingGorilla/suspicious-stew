@@ -52,8 +52,19 @@ const downloadLatest = async (nameRegex: RegExp) => {
 	)
 		.filter((dirent) => dirent.isFile())
 		.find((dirent) => nameRegex.test(dirent.name));
-
 	if (!current && !asset) throw new Error(`No matching asset found for ${nameRegex}`);
-	if (current && current.name === asset.name) return path.join(BIN_DIR, current.name);
+	if (current) {
+		try {
+			const currentId = await fs.promises.readFile(path.join(current.path, current.name + '.id'), 'utf8');
+			if (current && currentId === asset.id) return path.join(BIN_DIR, current.name);
+		} catch (err) {
+			logger.error(`Failed to read ${current.name}.id: ${err}`);
+		}
+	}
+	try {
+		await fs.promises.writeFile(path.join(BIN_DIR, asset.name + '.id'), asset.id.toString());
+	} catch (err) {
+		logger.error(`Failed to write ${asset.name}.id: ${err}`);
+	}
 	return downloadExecutable(asset.browser_download_url, asset.name);
 };
