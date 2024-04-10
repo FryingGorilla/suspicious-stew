@@ -303,7 +303,7 @@ export function bazaarApi() {
 				items?.map((item) => ({
 					id: item.id,
 					value: item.profitability,
-					weight: Math.round(Math.max(item.buyUsage, item.sellUsage) / divider),
+					weight: Math.round((item.buyUsage + item.sellUsage) / divider),
 				})) ?? [],
 				Math.round(remainingDailyLimit / goalTime / divider),
 				orderCount
