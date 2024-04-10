@@ -67,7 +67,7 @@ export default class Account {
 			const data = await jsonc.read(globals.ACCOUNT_FILE(this.uuid));
 			this.email = data.email;
 			this.username = data.username;
-			this.config = data.config;
+			this.config = data.config ?? globals.DEFAULT_CONFIG_FILE;
 		} catch (err) {
 			logger.error(`Error loading account ${this.uuid}: ${err}`);
 		}
