@@ -115,7 +115,16 @@ export default class Server {
 			);
 
 		logger.debug(`Spawning process for ${uuid}: ${command} ${args.join(' ')}`);
-		const child = spawn(command, args, {stdio: ['inherit', 'inherit', 'inherit', 'ipc']});
+
+		let child: ChildProcess;
+		try {
+			child = spawn(command, args, {stdio: ['inherit', 'inherit', 'inherit', 'ipc']});
+		} catch (err) {
+			logger.error(`Failed to spawn process for ${uuid}: ${err}`);
+			if (IS_IN_DEV) return;
+			child = spawn(await getBotBinary(true), args, {stdio: ['inherit', 'inherit', 'inherit', 'ipc']});
+		}
+
 		child.setMaxListeners(50);
 		child.on('spawn', () => logger.debug(`Process for ${uuid} online`));
 		child.on('exit', (err) => logger.debug(`Process for ${uuid} exited with code ${err}`));

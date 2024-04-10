@@ -12,8 +12,18 @@ import Server from './server';
 import {AppDataSource} from './db/data-source';
 import BotConfig from '../shared/bot-config';
 
-process.on('uncaughtException', (err) => {
-	logger.error(`uncaughtException: ${err}`);
+let lastEx: Error;
+let lastExTime = 0;
+process.on('uncaughtException', (ex) => {
+	if (lastEx === ex && Date.now() - lastExTime < 1000) return;
+	lastEx = ex;
+	lastExTime = Date.now();
+
+	logger.error([
+		`Uncaught exception from main: ${ex.message}`,
+		`Caused by: ${ex.cause ?? 'none'}`,
+		`Stack: ${ex.stack ?? 'none'}`,
+	]);
 });
 
 const config = Config.get();
