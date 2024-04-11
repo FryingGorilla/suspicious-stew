@@ -32,6 +32,7 @@ export default class Bazaar {
 				) {
 					logger.debug('Daily limit reached');
 					this.usedDailyLimit = Bazaar.DAILY_LIMIT;
+					this.checkLimit();
 				}
 			},
 			{persistent: true}
@@ -50,11 +51,26 @@ export default class Bazaar {
 
 			this.limitResetTime = nextUTCDay.getTime();
 			this.usedDailyLimit = 0;
+			this.sentNotification = false;
 			await this.saveLimit();
 			return true;
 		}
 
 		return false;
+	}
+
+	sentNotification = false;
+	checkLimit() {
+		if (this.usedDailyLimit >= Bazaar.DAILY_LIMIT) {
+			logger.debug('Daily limit reached');
+			this.usedDailyLimit = Bazaar.DAILY_LIMIT;
+			this.sentNotification = true;
+			this.manager.postNotification(
+				'Daily limit reached',
+				`The daily limit for ${this.manager.account.username} has been reached, no further Bazaar transactions can be made`,
+				2
+			);
+		}
 	}
 
 	async saveLimit() {
@@ -141,10 +157,6 @@ export default class Bazaar {
 				await this.openManageOrders(retries - 1);
 			} else {
 				this.expectedOrders = this.orders.length;
-				if (this.manager.config.options.orders.maxOrders < this.orders.length) {
-					this.manager.config.options.orders.maxOrders = this.orders.length;
-					await this.manager.config.save();
-				}
 			}
 		} catch (err) {
 			throw new Error(`Failed to open Manage Orders: ${err} (in window ${this.manager.bot.currentWindow?.title})`);
@@ -233,6 +245,7 @@ export default class Bazaar {
 			} else if (lore.includes('You reached the daily limit')) {
 				logger.debug('Daily limit reached');
 				this.usedDailyLimit = Bazaar.DAILY_LIMIT;
+				this.checkLimit();
 			} else {
 				let price = Number(/Price per unit: ([\d,]*\.?\d)/.exec(lore)?.at(1)?.replaceAll(',', ''));
 				if (isNaN(price)) {
@@ -247,6 +260,7 @@ export default class Bazaar {
 				}
 
 				this.usedDailyLimit += amount * price;
+				this.checkLimit();
 
 				this.expectedOrders++;
 				await this.manager.clickItem(
@@ -351,6 +365,7 @@ export default class Bazaar {
 
 			await this.manager.clickItem('Flip Order', 0, this.manager.writeToSign(String(topPrice)));
 			this.usedDailyLimit += amount * topPrice;
+			this.checkLimit();
 		} catch (err) {
 			logger.error(`Failed to flip order ${JSON.stringify(order)}: ${err}`);
 		}
@@ -386,6 +401,7 @@ export default class Bazaar {
 			await sleep(250);
 			await this.manager.clickItem('Custom Amount');
 			this.usedDailyLimit += amount * product.instantBuyPrice;
+			this.checkLimit();
 		} catch (err) {
 			logger.error(`Error while instant-buying ${amount}x ${product.id}: ${err}`);
 		}
@@ -412,6 +428,7 @@ export default class Bazaar {
 		} catch (err) {
 			logger.error(`Error while instant-selling ${product ? product.id : 'INVENTORY'}: ${err}`);
 		}
+		this.checkLimit();
 	}
 
 	getTotal() {

@@ -75,9 +75,6 @@ export default class BazaarFlipper extends Behavior {
 		);
 	}
 
-	sentBuyLimitNotification = false;
-	sentSellLimitNotification = false;
-
 	async main() {
 		const manager = this.manager;
 
@@ -120,8 +117,6 @@ export default class BazaarFlipper extends Behavior {
 		if (isNewDay) {
 			this.cycles = 0;
 			this.startingDailyLimit = 0;
-			this.sentBuyLimitNotification = false;
-			this.sentSellLimitNotification = false;
 		} else if (manager.bazaar.isAtLimit()) return;
 
 		if (!manager.hasCookie) {
@@ -268,8 +263,7 @@ export default class BazaarFlipper extends Behavior {
 				this.cycles++;
 
 				const avgUsage = (manager.bazaar.usedDailyLimit - (this.startingDailyLimit ?? 0)) / this.cycles;
-				const avgDuration =
-					(this.timer.getElapsedTime() - this.totalWaitTime - this.totalScheduledTimeout) / this.cycles;
+				const avgDuration = (this.timer.getElapsedTime() - this.totalWaitTime - this.totalTimeout) / this.cycles;
 
 				const remainingCycles = manager.bazaar.getRemainingLimit() / avgUsage;
 
@@ -282,9 +276,9 @@ export default class BazaarFlipper extends Behavior {
 					`Cycles: ${formatNumber(this.cycles)}`,
 					`Elapsed time: ${formatDuration(this.timer.getElapsedTime())}`,
 					`Total wait time: ${formatDuration(this.totalWaitTime)}`,
-					`Total timeout: ${formatDuration(this.totalScheduledTimeout)}`,
+					`Total timeout: ${formatDuration(this.totalTimeout)}`,
 					`elapsedTime - totalWaitTime - totalScheduledTimeout: ${formatDuration(
-						this.timer.getElapsedTime() - this.totalWaitTime - this.totalScheduledTimeout
+						this.timer.getElapsedTime() - this.totalWaitTime - this.totalTimeout
 					)}`,
 					`Avg. limit usage: ${formatNumber(avgUsage)}`,
 					`Avg. duration: ${formatDuration(avgDuration)}`,

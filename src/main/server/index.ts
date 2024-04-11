@@ -144,8 +144,9 @@ export default class Server {
 					case 'behavior-metrics': {
 						const {data, time} = mes as ChildToMain<'behavior-metrics'>;
 						AppDataSource.manager.insert(BotBehaviorMetrics, {
-							account_uuid: uuid,
 							time,
+							account_uuid: uuid,
+							config: data.manager.configPath,
 							...data,
 						});
 						break;

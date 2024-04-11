@@ -17,7 +17,7 @@ export abstract class Behavior {
 
 	isInTimeout = false;
 	timeoutStartTime = 0;
-	totalScheduledTimeout = 0;
+	totalTimeout = 0;
 	runId = 0;
 
 	constructor(public manager: BotManager) {}
@@ -60,7 +60,7 @@ export abstract class Behavior {
 			try {
 				if (this.isScheduled()) {
 					if (this.isInTimeout) {
-						this.totalScheduledTimeout += Date.now() - this.timeoutStartTime;
+						this.totalTimeout += Date.now() - this.timeoutStartTime;
 						this.manager.postNotification('Timeout ended', 'Scheduled timeout has ended, logging back in', 1);
 						this.isInTimeout = false;
 						this.manager.connect();
