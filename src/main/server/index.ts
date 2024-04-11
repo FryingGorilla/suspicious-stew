@@ -109,8 +109,8 @@ export default class Server {
 			args.unshift(
 				'--require',
 				'ts-node/register',
-				// '--expose-gc',
-				// `--inspect=0.0.0.0:0`,
+				'--expose-gc',
+				`--inspect=0.0.0.0:0`,
 				path.join(__dirname, '../../bot/index.ts')
 			);
 
@@ -147,7 +147,9 @@ export default class Server {
 							time,
 							account_uuid: uuid,
 							config: data.manager.configPath,
-							...data,
+							behavior_name: data.behaviorName,
+							behavior_state: data.state,
+							behavior_data: JSON.stringify(data),
 						});
 						break;
 					}
@@ -205,8 +207,14 @@ export default class Server {
 			};
 			child.on('message', listener);
 
+			const disconnect = () => {
+				socket.disconnect();
+			};
+			child.on('exit', disconnect);
+
 			socket.on('disconnect', () => {
 				child.off('message', listener);
+				child.off('exit', disconnect);
 			});
 		});
 	}

@@ -66,7 +66,7 @@ export default class BotManager {
 				logger.debug(`Spawned in as ${this.bot.username}!`);
 				this.account.username = this.bot.username;
 
-				this.postNotification('Spawned in!', `Spawned in as ${this.bot.username}`, 0);
+				this.postNotification('Spawned in!', `Spawned in as ${this.bot.username}`, 1);
 				this.onlineStatus = 'online';
 				this.postUpdate();
 
@@ -122,7 +122,7 @@ export default class BotManager {
 				logger.debug(`Kicked: ${reason}`);
 				this.onlineStatus = 'offline';
 				this.postUpdate();
-				this.postNotification('Kicked', `Kicked, reason: ${reason ?? 'No reason provided'}`, 1);
+				this.postNotification('Kicked', `Kicked, reason: ${reason ?? 'No reason provided'}`, 3);
 			},
 			{persistent: true}
 		);
@@ -136,7 +136,7 @@ export default class BotManager {
 				this.postNotification(
 					'Connection ended',
 					`Connection ended to hypixel.net, reason: ${reason ?? 'No reason provided'}`,
-					1
+					this.shouldReconnect ? 1 : 3
 				);
 
 				if (this.shouldReconnect) {
@@ -220,7 +220,7 @@ export default class BotManager {
 		this.postEvent('manager-update', this.serialize());
 	}
 
-	postNotification(title: string, message: string, level: number) {
+	postNotification(title: string, message: string, level: 1 | 2 | 3) {
 		this.postEvent('notification', {title, message, level});
 	}
 

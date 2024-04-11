@@ -437,7 +437,7 @@ export default class BazaarFlipper extends Behavior {
 			this.manager.postNotification(
 				'Co-op failsafe',
 				`Some Co-op members are online (${this.onlineMembers.join(', ')}), attempting to instant-sell everything...`,
-				2
+				3
 			);
 			await this.manager.sendChat(`/cc hellooo ${this.onlineMembers.join(', ')}! pls don't touch my orders!!!!`);
 
@@ -475,7 +475,7 @@ export default class BazaarFlipper extends Behavior {
 					return;
 				}
 
-				this.manager.postNotification('Auto Cookie', 'Attempting to buy a new Booster Cookie', 2);
+				this.manager.postNotification('Auto Cookie', 'Attempting to buy a new Booster Cookie', 3);
 
 				if (findItemSlot(boosterCookie.name, bot.inventory, true) === -1) {
 					if (this.manager.isInventoryFull()) {

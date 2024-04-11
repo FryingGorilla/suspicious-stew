@@ -61,13 +61,13 @@ export abstract class Behavior {
 				if (this.isScheduled()) {
 					if (this.isInTimeout) {
 						this.totalTimeout += Date.now() - this.timeoutStartTime;
-						this.manager.postNotification('Timeout ended', 'Scheduled timeout has ended, logging back in', 1);
+						this.manager.postNotification('Timeout ended', 'Scheduled timeout has ended, logging back in', 2);
 						this.isInTimeout = false;
 						this.manager.connect();
 					}
 				} else if (!this.isInTimeout) {
 					this.timeoutStartTime = Date.now();
-					this.manager.postNotification('Timeout', 'Scheduled timeout has started, disconnecting', 1);
+					this.manager.postNotification('Timeout', 'Scheduled timeout has started, disconnecting', 2);
 					this.isInTimeout = true;
 					if (this.manager.onlineStatus === 'connecting') await this.manager.waitForBotEvent('spawn');
 					this.manager.disconnect();
