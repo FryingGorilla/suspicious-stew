@@ -55,7 +55,7 @@ export default class BotConfig {
 		},
 		general: {
 			maxUsage: 40_000_000,
-			timeouts: [{start: 9, end: 13}],
+			timeouts: [],
 			coopFailsafe: false,
 			autoCookie: false,
 		},
