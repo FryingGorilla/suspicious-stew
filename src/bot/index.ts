@@ -52,9 +52,9 @@ async function main() {
 		flipper.postUpdate();
 		botManager.bazaar.postUpdate();
 	});
-	wrapper.on('behavior::start', () => flipper.start());
-	wrapper.on('behavior::pause', () => flipper.pause());
-	wrapper.on('behavior::stop', () => flipper.stop());
+	wrapper.on('flipper::start', () => flipper.start());
+	wrapper.on('flipper::pause', () => flipper.pause());
+	wrapper.on('flipper::stop', () => flipper.stop());
 	wrapper.on('botManager::sendChat', ({message}) => botManager.sendChat(message));
 	wrapper.on('botManager::clickSlot', ({slot}) => botManager.clickSlot(slot));
 	wrapper.on('botManager::updateOrders', () => {

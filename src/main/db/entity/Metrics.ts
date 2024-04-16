@@ -26,17 +26,17 @@ export class Metrics {
 	onlineMembers!: string;
 	@Column()
 	cookieBuffTime!: number;
-	@Column()
+	@Column({nullable: true})
 	startingTotal!: number;
-	@Column()
+	@Column({nullable: true})
 	startingUsedDailyLimit!: number;
-	@Column()
+	@Column({nullable: true})
 	profit!: number;
-	@Column()
+	@Column({nullable: true})
 	email!: string;
 	@Column()
 	uuid!: string;
-	@Column()
+	@Column({nullable: true})
 	username!: string;
 	@Column()
 	configPath!: string;

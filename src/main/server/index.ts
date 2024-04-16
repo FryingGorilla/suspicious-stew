@@ -35,6 +35,8 @@ export default class Server {
 		account: {email?: string; uuid: string; config?: string; username?: string};
 		process: ChildProcess;
 	}[] = [];
+	private namespaces: Record<string, socketIO.Namespace> = {};
+
 	private io: socketIO.Server;
 	private httpServer: http.Server;
 	private constructor() {
@@ -127,7 +129,6 @@ export default class Server {
 
 		child.setMaxListeners(50);
 		child.on('spawn', () => logger.debug(`Process for ${uuid} online`));
-		child.on('exit', (err) => logger.debug(`Process for ${uuid} exited with code ${err}`));
 		child.on('error', (err) => logger.error(`Process for ${uuid} errored: ${err}`));
 		child.on('message', (mes) => {
 			if (typeof mes !== 'object' || !('event' in mes) || typeof mes.event !== 'string') return;
@@ -164,7 +165,7 @@ export default class Server {
 							})
 							.then((res) => {
 								const {id} = res.identifiers[0];
-								namespace.emit('notification', {
+								this.namespaces[uuid].emit('notification', {
 									...mes,
 									data: {
 										...data,
@@ -185,7 +186,7 @@ export default class Server {
 							})
 							.then((res) => {
 								const {id} = res.identifiers[0];
-								namespace.emit('chat', {
+								this.namespaces[uuid].emit('chat', {
 									...mes,
 									data: {
 										...data,
@@ -222,10 +223,11 @@ export default class Server {
 			account: account.serialize(),
 		});
 
-		const namespace = io.of(uuid);
-		namespace.use(socketMiddleware(Config.get().options.password));
+		if (!(uuid in this.namespaces)) {
+			this.namespaces[uuid] = io.of(uuid).use(socketMiddleware(Config.get().options.password));
+		}
 
-		namespace.on('connection', (socket) => {
+		const connectionListener = (socket: Socket) => {
 			logger.debug(`Socket ${socket.id} connected to ${uuid}`);
 
 			socket.onAny((event, ...args) => {
@@ -244,9 +246,15 @@ export default class Server {
 			child.on('exit', disconnect);
 
 			socket.on('disconnect', () => {
+				logger.debug(`Socket ${socket.id} disconnected from ${uuid}`);
 				child.off('message', listener);
 				child.off('exit', disconnect);
 			});
+		};
+		this.namespaces[uuid].on('connection', connectionListener);
+		child.on('exit', (code) => {
+			logger.debug(`Process for ${uuid} exited with code ${code}`);
+			this.namespaces[uuid].off('connection', connectionListener);
 		});
 	}
 

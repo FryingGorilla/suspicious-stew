@@ -51,7 +51,7 @@ export default class BazaarFlipper {
 	async startMain() {
 		const interval = setInterval(() => {
 			if (this.state !== 'running') clearInterval(interval);
-			this.postMetrics();
+			else this.postMetrics();
 		}, 3 * 60 * 1000);
 
 		const runId = this.runId;
@@ -604,9 +604,10 @@ export default class BazaarFlipper {
 		});
 	}
 
+	checkTime = 0;
 	cookieBuffTime = 0;
 	async getCookieBuffTime() {
-		if (this.cookieBuffTime) return this.cookieBuffTime;
+		if (this.cookieBuffTime) return this.cookieBuffTime - (Date.now() - this.checkTime);
 
 		const {bot} = this.manager;
 		bot.setQuickBarSlot(8);
@@ -627,6 +628,7 @@ export default class BazaarFlipper {
 				(Number(matches[4]) || 0) * 60 +
 				(Number(matches[5]) || 0)) *
 			1000;
+		this.checkTime = Date.now();
 
 		return this.cookieBuffTime;
 	}
@@ -643,7 +645,7 @@ export default class BazaarFlipper {
 			startingTotal: this.startingTotal,
 			startingDailyLimit: this.startingDailyLimit,
 			profit: this.startingTotal ? this.manager.bazaar.lastValidated.total - this.startingTotal : undefined,
-			cookieBuffTime: this.cookieBuffTime,
+			cookieBuffTime: this.cookieBuffTime ? this.cookieBuffTime - (Date.now() - this.checkTime) : 0,
 			onlineMembers: this.onlineMembers,
 		};
 	}
