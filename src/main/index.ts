@@ -41,6 +41,7 @@ export const shutdown = async (code?: number) => {
 			headers: {
 				Authorization: config.options.apiToken,
 			},
+			timeout: 1000,
 		});
 	} catch (err) {
 		logger.error(`Error posting to API: ${err}`);

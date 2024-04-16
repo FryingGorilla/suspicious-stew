@@ -51,38 +51,6 @@ export type Order = {
 	undercutAmount?: number;
 };
 
-export type Message = {
-	event: Event;
-	[key: string]: unknown;
-};
-
-export type BehaviorState = 'running' | 'stopped' | 'paused';
-
-export type BehaviorMetricsData<T = object> = {
-	readonly manager: ManagerUpdateData;
-} & BehaviorUpdateData<T>;
-
-export type BehaviorUpdateData<T = object> = {
-	readonly behaviorName: string;
-	readonly isInTimeout: boolean;
-	readonly state: BehaviorState;
-	readonly activeActivity: string;
-	readonly elapsedTime: number;
-} & T;
-
-export type ManagerUpdateData = {
-	readonly email?: string;
-	readonly uuid: string;
-	readonly username?: string;
-	readonly configPath?: string;
-
-	readonly hasCookie: boolean;
-	readonly onlineStatus: OnlineStatus;
-	readonly location: Location;
-};
-
-export type OnlineStatus = 'online' | 'offline' | 'connecting';
-export type Location = 'limbo' | 'lobby' | 'hub' | 'island' | 'skyblock';
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type GenericFunction = (...args: any[]) => any;
 export type Persistent<T extends object> = AddParameter<T, [persistence?: {persistent: boolean}]>;
@@ -104,8 +72,9 @@ export type BazaarApiArgs = {
 
 export type ChildEvents =
 	| 'get-products'
-	| 'behavior-update'
-	| 'behavior-metrics'
+	| 'bazaar-update'
+	| 'flipper-metrics'
+	| 'flipper-update'
 	| 'manager-update'
 	| 'notification'
 	| 'chat'
@@ -120,11 +89,55 @@ export type ChildData = {
 		message: string;
 	};
 	solve: BazaarApiArgs;
-	'manager-update': ManagerUpdateData;
-	'behavior-update': BehaviorUpdateData;
-	'behavior-metrics': BehaviorMetricsData;
 	'get-products': null;
+	'manager-update': ManagerUpdateData;
+	'bazaar-update': BazaarUpdateData;
+	'flipper-update': FlipperUpdateData;
+	'flipper-metrics': ManagerUpdateData & FlipperUpdateData & BazaarUpdateData;
 };
+
+export type FlipperState = 'running' | 'stopped' | 'paused';
+export type OnlineStatus = 'online' | 'offline' | 'connecting';
+export type Location = 'limbo' | 'lobby' | 'hub' | 'island' | 'skyblock';
+
+export type FlipperUpdateData = {
+	readonly isInTimeout: boolean;
+	readonly state: FlipperState;
+	readonly activeActivity: string;
+	readonly elapsedTime: number;
+	readonly cycles: number;
+	readonly totalWaitTime: number;
+	readonly totalTimeout: number;
+	readonly onlineMembers: string[];
+	readonly cookieBuffTime: number;
+
+	readonly startingTotal?: number;
+	readonly startingDailyLimit?: number;
+
+	readonly profit?: number;
+};
+
+export type ManagerUpdateData = {
+	readonly email?: string;
+	readonly uuid: string;
+	readonly username?: string;
+	readonly configPath?: string;
+
+	readonly hasCookie: boolean;
+	readonly onlineStatus: OnlineStatus;
+	readonly location: Location;
+};
+
+export type BazaarUpdateData = {
+	readonly orders: Order[];
+	readonly ordersWorth: number;
+	readonly inventoryWorth: number;
+	readonly spent: number;
+	readonly total: number;
+	readonly usedDailyLimit: number;
+	readonly purse: number;
+};
+
 export type ChildToMain<T extends ChildEvents> = {
 	event: T;
 	data: ChildData[T];

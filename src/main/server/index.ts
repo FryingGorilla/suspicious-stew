@@ -18,7 +18,7 @@ import {AppDataSource} from '../db/data-source';
 import {Notification} from '../db/entity/Notification';
 import {ChatLog} from '../db/entity/ChatLog';
 import fs from 'fs';
-import {BotBehaviorMetrics} from '../db/entity/BotBehaviorMetrics';
+import {Metrics} from '../db/entity/Metrics';
 
 export default class Server {
 	private static instance: Server;
@@ -109,8 +109,8 @@ export default class Server {
 			args.unshift(
 				'--require',
 				'ts-node/register',
-				'--expose-gc',
-				`--inspect=0.0.0.0:0`,
+				// '--expose-gc',
+				// `--inspect=0.0.0.0:0`,
 				path.join(__dirname, '../../bot/index.ts')
 			);
 
@@ -141,28 +141,58 @@ export default class Server {
 						account.email = data.email;
 						break;
 					}
-					case 'behavior-metrics': {
-						const {data, time} = mes as ChildToMain<'behavior-metrics'>;
-						AppDataSource.manager.insert(BotBehaviorMetrics, {
+					case 'flipper-metrics': {
+						const {data, time} = mes as ChildToMain<'flipper-metrics'>;
+						AppDataSource.manager.insert(Metrics, {
 							time,
-							account_uuid: uuid,
-							config: data.manager.configPath,
-							behavior_name: data.behaviorName,
-							behavior_state: data.state,
-							behavior_data: JSON.stringify(data),
+							...data,
+							orders: JSON.stringify(data.orders),
+							onlineMembers: JSON.stringify(data.onlineMembers),
 						});
 						break;
 					}
 					case 'notification': {
 						const {data, time} = mes as ChildToMain<'notification'>;
 						const {level, title, message} = data;
-						AppDataSource.manager.insert(Notification, {account_uuid: uuid, level, title, message, time});
+						AppDataSource.getRepository(Notification)
+							.insert({
+								account_uuid: uuid,
+								level,
+								title,
+								message,
+								time,
+							})
+							.then((res) => {
+								const {id} = res.identifiers[0];
+								namespace.emit('notification', {
+									...mes,
+									data: {
+										...data,
+										id,
+									},
+								});
+							});
 						break;
 					}
 					case 'chat': {
 						const {data, time} = mes as ChildToMain<'chat'>;
 						const {message} = data;
-						AppDataSource.manager.insert(ChatLog, {account_uuid: uuid, message, time});
+						AppDataSource.getRepository(ChatLog)
+							.insert({
+								account_uuid: uuid,
+								message,
+								time,
+							})
+							.then((res) => {
+								const {id} = res.identifiers[0];
+								namespace.emit('chat', {
+									...mes,
+									data: {
+										...data,
+										id,
+									},
+								});
+							});
 						break;
 					}
 					case 'solve': {
@@ -203,6 +233,7 @@ export default class Server {
 			});
 
 			const listener = ({event, ...args}: {event: string}) => {
+				if (event === 'chat' || event === 'notification') return;
 				socket.emit(event, args);
 			};
 			child.on('message', listener);

@@ -27,12 +27,8 @@ type Options = {
 	general: {
 		maxUsage: number;
 		timeouts: {start: number; end: number}[];
-	};
-	failsafe: {
 		coopFailsafe: boolean;
 		autoCookie: boolean;
-		antiAfk: boolean;
-		npcMode: boolean;
 	};
 };
 export default class BotConfig {
@@ -59,13 +55,9 @@ export default class BotConfig {
 		},
 		general: {
 			maxUsage: 40_000_000,
-			timeouts: [{start: 12, end: 16}],
-		},
-		failsafe: {
+			timeouts: [{start: 9, end: 13}],
 			coopFailsafe: false,
 			autoCookie: false,
-			antiAfk: false,
-			npcMode: false,
 		},
 	};
 

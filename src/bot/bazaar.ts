@@ -1,11 +1,10 @@
-import {Order, Product} from '../shared/types';
+import {BazaarUpdateData, Order, Product} from '../shared/types';
 import logger from '../shared/logger';
 import {jsoncSafe} from 'jsonc/lib/jsonc.safe';
 import {globals} from '../shared/globals';
 import {existsSync} from 'fs';
 import {clean, findItem, getCleanLore, getNbt} from './bot-utils';
-import {sleep} from '../shared/utils';
-import {goals} from 'mineflayer-pathfinder';
+import {wait} from '../shared/utils';
 import assert from 'assert';
 import {ChatMessage} from 'prismarine-chat';
 import BotManager from './bot-manager';
@@ -18,7 +17,6 @@ export default class Bazaar {
 	products: Product[] = [];
 	orders: Order[] = [];
 	expectedOrders = 0;
-	npcMode = false;
 
 	constructor(public manager: BotManager) {
 		manager.bot.on(
@@ -33,6 +31,9 @@ export default class Bazaar {
 					logger.debug('Daily limit reached');
 					this.usedDailyLimit = Bazaar.DAILY_LIMIT;
 					this.checkLimit();
+				} else if (message.toString().startsWith('You consumed a Booster Cookie!')) {
+					logger.debug('Cookie consumed');
+					manager.hasCookie = true;
 				}
 			},
 			{persistent: true}
@@ -74,12 +75,14 @@ export default class Bazaar {
 	}
 
 	async saveLimit() {
+		if (!this.manager.account.email) return;
+
 		const data = {
 			usedDailyLimit: this.usedDailyLimit,
 			limitResetTime: this.limitResetTime,
 		};
 
-		const [error] = await jsoncSafe.write(globals.ACCOUNT_LIMIT_CACHE(this.manager.account.uuid), data, {
+		const [error] = await jsoncSafe.write(globals.ACCOUNT_LIMIT_CACHE(this.manager.account.email), data, {
 			space: '\t',
 		});
 		if (error) logger.error(`Error saving limits for ${this.manager.account.username}: ${error.message}`);
@@ -87,13 +90,16 @@ export default class Bazaar {
 	}
 
 	async loadLimits() {
-		if (!existsSync(globals.ACCOUNT_LIMIT_CACHE(this.manager.account.uuid))) return;
-		const [error, data] = await jsoncSafe.read(globals.ACCOUNT_LIMIT_CACHE(this.manager.account.uuid));
-		if (error) logger.error(`Error loading limits for ${this.manager.account.username}: ${error}`);
+		if (!this.manager.account.email) return;
+		if (!existsSync(globals.ACCOUNT_LIMIT_CACHE(this.manager.account.email))) return;
+		const [error, data] = await jsoncSafe.read(globals.ACCOUNT_LIMIT_CACHE(this.manager.account.email));
 
-		const {usedDailyLimit, limitResetTime} = data;
-		this.usedDailyLimit = usedDailyLimit ?? 0;
-		this.limitResetTime = limitResetTime ?? 0;
+		this.usedDailyLimit = data?.usedDailyLimit ?? 0;
+		this.limitResetTime = data?.limitResetTime ?? 0;
+		if (error) {
+			await this.saveLimit();
+			logger.error(`Error loading limits for ${this.manager.account.username}: ${error}`);
+		}
 
 		return this;
 	}
@@ -102,41 +108,17 @@ export default class Bazaar {
 		const bot = this.manager.bot;
 
 		logger.debug(`Opening Bazaar${search ? ` for '${search}'` : ''}`);
-		if (this.manager.location !== (this.npcMode ? 'hub' : 'island')) return;
+		if (this.manager.location !== 'island') return;
 
 		try {
 			if (bot.currentWindow) {
 				bot.closeWindow(bot.currentWindow);
-				await sleep(400);
+				await wait(400);
 			}
-
-			if (this.npcMode) {
-				logger.debug('Going to Bazaar npc');
-				await bot.waitForChunksToLoad();
-				await bot.pathfinder.goto(new goals.GoalNearXZ(-32.5, -76.5, 3));
-				logger.debug('Arrived near the Bazaar npc');
-
-				const bazaar = bot.nearestEntity((e) => e.getCustomName()?.toString() === 'Bazaar');
-				if (!bazaar) {
-					logger.error('Failed to find the Bazaar npc, trying again...');
-					await this.manager.sendChat('/is');
-					await sleep(5000);
-					await this.openBz(search);
-					return;
-				}
-
-				await bot.activateEntity(bazaar);
-				await this.manager.waitForBotEvent('windowOpen');
-				if (search) {
-					await this.manager.clickItem('Search', 0, this.manager.writeToSign(search));
-					await this.manager.waitForBotEvent('windowOpen');
-				}
-			} else {
-				await this.manager.sendChat(`/bz${search ? ' ' + search : ''}`);
-				await this.manager.waitForBotEvent('windowOpen');
-				this.manager.hasCookie = true;
-			}
-			await sleep(500);
+			await this.manager.sendChat(`/bz${search ? ' ' + search : ''}`);
+			await this.manager.waitForBotEvent('windowOpen');
+			this.manager.hasCookie = true;
+			await wait(500);
 		} catch (err) {
 			throw new Error(`Failed to open Bazaar: ${err}`);
 		}
@@ -157,19 +139,39 @@ export default class Bazaar {
 				await this.openManageOrders(retries - 1);
 			} else {
 				this.expectedOrders = this.orders.length;
+				this.postUpdate(true);
 			}
 		} catch (err) {
 			throw new Error(`Failed to open Manage Orders: ${err} (in window ${this.manager.bot.currentWindow?.title})`);
 		}
 	}
-	async changeNpcMode(npcMode: boolean) {
-		if (this.npcMode === npcMode) return;
 
-		this.manager.postNotification(`NPC mode`, `${npcMode ? 'Enabling' : 'Disabling'} NPC mode`, 2);
-		logger.debug(`${npcMode ? 'Enabling' : 'Disabling'} NPC mode`);
+	postUpdate(validated?: boolean) {
+		this.manager.postEvent('bazaar-update', this.serialize(validated));
+	}
 
-		this.npcMode = npcMode;
-		await this.manager.sendChat('/l');
+	lastValidated: BazaarUpdateData = {
+		orders: [],
+		spent: 0,
+		ordersWorth: 0,
+		inventoryWorth: 0,
+		total: 0,
+		usedDailyLimit: 0,
+		purse: 0,
+	};
+	serialize(validated?: boolean): BazaarUpdateData {
+		if (validated) {
+			this.lastValidated = {
+				orders: this.orders,
+				spent: this.getSpent(),
+				ordersWorth: this.getOrdersWorth(),
+				inventoryWorth: this.getInvWorth(),
+				total: this.getTotal(),
+				usedDailyLimit: this.usedDailyLimit,
+				purse: this.manager.getPurse(),
+			};
+		}
+		return this.lastValidated;
 	}
 
 	async createOrder(order: Order): Promise<void> {
@@ -205,7 +207,7 @@ export default class Bazaar {
 					this.manager.writeToSign(String(Math.floor(Math.min(order.amount ?? 1, maxAmount))))
 				);
 				await this.manager.waitForBotEvent('windowOpen');
-				await sleep(250);
+				await wait(250);
 			}
 			const topPrice = Number(
 				/Unit price: ([\d,]*\.?\d) coins/
@@ -234,7 +236,7 @@ export default class Bazaar {
 			const lore = getCleanLore(item);
 			if (lore.includes('Placing orders is on cooldown!')) {
 				logger.debug('On cooldown, trying again in 1 minute...');
-				await sleep(1000 * 60);
+				await wait(1000 * 60);
 				return this.createOrder(order);
 			} else if (lore.includes('Too many orders!')) {
 				logger.debug('Order limit reached');
@@ -398,7 +400,7 @@ export default class Bazaar {
 				this.manager.writeToSign(String(Math.floor(Math.min(amount, maxAmount))))
 			);
 			await this.manager.waitForBotEvent('windowOpen');
-			await sleep(250);
+			await wait(250);
 			await this.manager.clickItem('Custom Amount');
 			this.usedDailyLimit += amount * product.instantBuyPrice;
 			this.checkLimit();
@@ -671,7 +673,7 @@ export default class Bazaar {
 	getTrueLimit(): number {
 		return (
 			Bazaar.DAILY_LIMIT -
-			(this.manager.config.options.failsafe.coopFailsafe ? this.manager.config.options.general.maxUsage * 5 : 0)
+			(this.manager.config.options.general.coopFailsafe ? this.manager.config.options.general.maxUsage * 5 : 0)
 		);
 	}
 

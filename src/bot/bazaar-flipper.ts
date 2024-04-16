@@ -1,16 +1,12 @@
-import logger from '../../shared/logger';
-import {formatDuration, formatNumber, sleep, waitForEvent} from '../../shared/utils';
-import {Order} from '../../shared/types';
-import {Behavior} from '../behavior';
+import logger from '../shared/logger';
+import {formatDuration, formatNumber, getHours, wait, waitForEvent} from '../shared/utils';
+import {FlipperState, FlipperUpdateData, Order} from '../shared/types';
 import {ChatMessage} from 'prismarine-chat';
-import BotManager from '../bot-manager';
-import {clean, findItemSlot, getCleanLore} from '../bot-utils';
-import Bazaar from '../bazaar';
+import BotManager from './bot-manager';
+import {clean, findItem, findItemSlot, getCleanLore} from './bot-utils';
+import Bazaar from './bazaar';
 
-export default class BazaarFlipper extends Behavior {
-	getName(): string {
-		return 'bz-flipper';
-	}
+export default class BazaarFlipper {
 	onlineMembers: string[] = [];
 
 	startingTotal?: number;
@@ -18,32 +14,159 @@ export default class BazaarFlipper extends Behavior {
 	totalWaitTime = 0;
 	cycles = 0;
 
-	constructor(manager: BotManager) {
-		super(manager);
+	timer: Timer = new Timer();
+	state: FlipperState = 'stopped';
+	activeActivity: string = 'default';
 
+	isInTimeout = false;
+	timeoutStartTime = 0;
+	totalTimeout = 0;
+	runId = 0;
+
+	async changeActivity(activity: string, func: () => unknown) {
+		try {
+			if (activity === this.activeActivity) return;
+			const prev = this.activeActivity;
+			this.activeActivity = activity;
+			await func();
+
+			this.activeActivity = prev;
+		} catch (err) {
+			logger.error(`${activity} failed: ${err}`);
+		}
+	}
+
+	start(): void {
+		if (this.state === 'running') return;
+		logger.debug(this.state === 'stopped' ? 'Starting up...' : 'Resuming...');
+		this.state = 'running';
+
+		this.runId++;
+		this.startMain();
+		this.timer.start();
+		this.postUpdate();
+		this.manager.connect();
+	}
+
+	async startMain() {
+		const interval = setInterval(() => {
+			if (this.state !== 'running') clearInterval(interval);
+			this.postMetrics();
+		}, 3 * 60 * 1000);
+
+		const runId = this.runId;
+		while (this.state === 'running' && this.runId === runId) {
+			try {
+				if (this.isScheduled()) {
+					if (this.isInTimeout) {
+						this.totalTimeout += Date.now() - this.timeoutStartTime;
+						this.manager.postNotification('Timeout ended', 'Scheduled timeout has ended, logging back in', 2);
+						this.isInTimeout = false;
+						this.manager.connect();
+						this.postUpdate();
+					}
+				} else if (!this.isInTimeout) {
+					this.timeoutStartTime = Date.now();
+					this.manager.postNotification('Timeout', 'Scheduled timeout has started, disconnecting', 2);
+					this.isInTimeout = true;
+					if (this.manager.onlineStatus === 'connecting') await this.manager.waitForBotEvent('spawn');
+					this.manager.disconnect();
+					this.postUpdate();
+				}
+				if (!this.isInTimeout) this.main && (await this.main());
+				await wait(1000);
+			} catch (err) {
+				logger.error(`An error occurred in the main function: ${err}`);
+			}
+		}
+	}
+
+	isScheduled(): boolean {
+		let isScheduled = true;
+		const hours = getHours();
+
+		for (const {start, end} of this.manager.config.options.general.timeouts) {
+			if (start <= hours && hours <= end) {
+				isScheduled = false;
+				break;
+			}
+		}
+		logger.debug(`utc hours ${hours}, scheduled: ${isScheduled}`);
+
+		return isScheduled;
+	}
+
+	getRemainingTime(): number {
+		const hours = getHours();
+		let remainingTime = (24 - hours) * 60 * 60 * 1000;
+
+		for (const {start, end} of this.manager.config.options.general.timeouts) {
+			if (end < hours) continue;
+			if (start < hours) {
+				remainingTime -= (end - hours) * 60 * 60 * 1000;
+			} else {
+				remainingTime -= (end - start) * 60 * 60 * 1000;
+			}
+		}
+
+		return remainingTime;
+	}
+
+	pause(): void {
+		if (this.state === 'paused') return;
+		logger.debug('Pausing...');
+		this.state = 'paused';
+
+		this.timer.pause();
+		this.postUpdate();
+
+		this.manager.connect();
+	}
+
+	stop(): void {
+		if (this.state === 'stopped') return;
+		logger.debug('Stopping...');
+		this.state = 'stopped';
+		this.activeActivity = 'default';
+
+		this.timer.stop();
+		this.postUpdate();
+
+		this.manager.disconnect();
+
+		this.startingTotal = undefined;
+		this.startingDailyLimit = undefined;
+		this.cycles = 0;
+		this.totalWaitTime = 0;
+		this.cycles = 0;
+	}
+
+	postUpdate(): void {
+		this.manager.postEvent('flipper-update', this.serialize());
+	}
+
+	postMetrics() {
+		this.manager.postEvent('flipper-metrics', {
+			...this.serialize(),
+			...this.manager.serialize(),
+			...this.manager.bazaar.serialize(),
+		});
+	}
+
+	constructor(public manager: BotManager) {
 		this.manager.bot.on(
 			'spawn',
 			async () => {
 				if (this.state !== 'running') return;
 				if (this.activeActivity !== 'default') return;
-				if (manager.location !== (manager.bazaar.npcMode ? 'hub' : 'island')) return;
+				if (manager.location !== 'island') return;
 
-				if (manager.config.options.failsafe.coopFailsafe) {
+				if (manager.config.options.general.coopFailsafe) {
 					await this.coopFailsafe();
 				}
 			},
 			{persistent: true}
 		);
-		setInterval(async () => {
-			if (!manager.config.options.failsafe.antiAfk) return;
-			if (this.manager.onlineStatus !== 'online') return;
-			if (!this.manager.bazaar.npcMode) return;
-			if (manager.bot.pathfinder.isMoving()) return;
-			if (manager.bot.currentWindow) return;
-
-			manager.bot.setQuickBarSlot((manager.bot.quickBarSlot + 1) % 9);
-		}, 2500);
-
 		manager.bot.on(
 			'message',
 			async (chatMessage: ChatMessage, position: string) => {
@@ -67,7 +190,7 @@ export default class BazaarFlipper extends Behavior {
 					if (index !== -1) this.onlineMembers.splice(index, 1);
 				}
 
-				if (this.manager.config.options.failsafe.coopFailsafe) {
+				if (this.manager.config.options.general.coopFailsafe) {
 					await this.coopFailsafe();
 				}
 			},
@@ -81,36 +204,15 @@ export default class BazaarFlipper extends Behavior {
 		if (manager.onlineStatus !== 'online' || this.manager.spawnDelay) return;
 
 		await manager.updateLocation();
-		const goalLocation = this.manager.bazaar.npcMode ? 'hub' : 'island';
-		if (this.manager.location !== goalLocation) {
+		if (this.manager.location !== 'island') {
 			return await this.changeActivity('failsafe', async () => {
-				this.manager.postNotification(
-					`Failsafe activated`,
-					`Current location: ${this.manager.location}, goal location: ${goalLocation}`,
-					2
-				);
-				logger.debug(`Failsafe activated: Current location: ${this.manager.location}, goal location: ${goalLocation}`);
-
-				switch (goalLocation) {
-					case 'island': {
-						if (this.manager.location === 'skyblock' || this.manager.location === 'hub')
-							await this.manager.sendChat('/is');
-						else if (this.manager.location === 'limbo') await this.manager.sendChat('/l');
-						else if (this.manager.location === 'lobby') await this.manager.sendChat('/skyblock');
-						break;
-					}
-					case 'hub': {
-						if (this.manager.location === 'skyblock' || this.manager.location === 'island')
-							await this.manager.sendChat('/hub');
-						else if (this.manager.location === 'limbo') await this.manager.sendChat('/l');
-						else if (this.manager.location === 'lobby') await this.manager.sendChat('/skyblock');
-						break;
-					}
-				}
+				this.manager.postNotification(`Failsafe activated`, `Current location: ${this.manager.location}`, 2);
+				logger.debug(`Failsafe activated: Current location: ${this.manager.location}`);
+				if (this.manager.location === 'skyblock' || this.manager.location === 'hub') await this.manager.sendChat('/is');
+				else if (this.manager.location === 'limbo') await this.manager.sendChat('/l');
+				else if (this.manager.location === 'lobby') await this.manager.sendChat('/skyblock');
 			});
 		}
-
-		if (this.activeActivity !== 'default') return;
 
 		const isNewDay = await manager.bazaar.updateLimit();
 		await manager.bazaar.saveLimit();
@@ -119,25 +221,28 @@ export default class BazaarFlipper extends Behavior {
 			this.startingDailyLimit = 0;
 		} else if (manager.bazaar.isAtLimit()) return;
 
-		if (!manager.hasCookie) {
-			if (manager.config.options.failsafe.npcMode && manager.config.options.failsafe.autoCookie) {
-				await manager.bazaar.changeNpcMode(true);
-				const cookie = manager.bazaar.getProduct('BOOSTER_COOKIE');
-				if (!cookie) throw Error('Failed to find product for booster cookie');
-				if (manager.getPurse() >= cookie.instantBuyPrice * 3) await this.buyCookie();
-				return;
-			} else {
-				logger.error('Stopping flipper: no cookie');
-				manager.postNotification(
-					'No Cookie Buff',
-					`Detected no cookie buff for ${manager.account.username}, stopping now. If you wish to continue, please purchase and consume a booster cookie manually.`,
-					3
-				);
-				this.stop();
-				return;
-			}
-		} else if (manager.bazaar.npcMode) await manager.bazaar.changeNpcMode(false);
 		await manager.bazaar.updateProducts();
+
+		// TODO: Auto cookie
+		if (!manager.hasCookie) {
+			logger.error('Stopping flipper: no cookie');
+			manager.postNotification(
+				'No Cookie Buff',
+				`Detected no cookie buff for ${manager.account.username}, stopping now. If you wish to continue, please purchase and consume a booster cookie manually.`,
+				3
+			);
+			this.stop();
+			return;
+		} else if ((await this.getCookieBuffTime()) < 24 * 60 * 60 * 1000 && manager.config.options.general.autoCookie) {
+			logger.debug('Less than 2 days left of cookie buff');
+			const cookie = this.manager.bazaar.getProduct('BOOSTER_COOKIE');
+			if (!cookie) return logger.debug('Failed to get BOOSTER_COOKIE bazaar products');
+			if (cookie.instantBuyPrice * 2 > this.manager.getPurse())
+				return logger.debug('Not buying a cookie: not enough money');
+			await this.buyCookie();
+			return;
+		}
+
 		await manager.bazaar.openManageOrders();
 		const total = manager.bazaar.getTotal();
 
@@ -290,23 +395,10 @@ export default class BazaarFlipper extends Behavior {
 				if (!isNaN(delay) && delay > 0) {
 					logger.debug(`Waiting for ${formatDuration(delay)}...`);
 					this.totalWaitTime += delay;
-					await sleep(delay);
+					await wait(delay);
 				}
 			}
 		})();
-	}
-
-	onStop() {
-		this.startingTotal = undefined;
-		this.startingDailyLimit = undefined;
-		this.cycles = 0;
-		this.totalWaitTime = 0;
-		this.cycles = 0;
-	}
-
-	isLocationCorrect() {
-		const goalLocation = this.manager.bazaar.npcMode ? 'hub' : 'island';
-		return this.manager.location === goalLocation;
 	}
 
 	async getOptimalOrders(
@@ -352,13 +444,13 @@ export default class BazaarFlipper extends Behavior {
 		while (
 			this.state === 'running' &&
 			this.manager.onlineStatus === 'online' &&
-			this.isLocationCorrect() &&
+			this.manager.location === 'island' &&
 			(instantSell || this.manager.bazaar.getRemainingOrderSpace('sell') > 0) &&
 			Bazaar.DAILY_LIMIT - this.manager.bazaar.usedDailyLimit > 0
 		) {
 			try {
 				await this.manager.bazaar.openManageOrders();
-				await sleep(2000);
+				await wait(2000);
 
 				let isEmpty = false;
 
@@ -378,6 +470,7 @@ export default class BazaarFlipper extends Behavior {
 				}
 
 				if (isEmpty && this.manager.bazaar.getBazaarProductsFromInv().length === 0) break;
+				fails--;
 			} catch (err) {
 				logger.error(`Error while selling inv: ${err}`);
 				if (fails++ > MAX_FAILS) break;
@@ -457,7 +550,7 @@ export default class BazaarFlipper extends Behavior {
 
 			// Routine checks every 10 minutes
 			while (this.state === 'running') {
-				await sleep(10 * 60 * 1000);
+				await wait(10 * 60 * 1000);
 				if (this.manager.onlineStatus !== 'online' || this.manager.location !== 'island') return;
 				if (!(await this.checkForOnlineMembers())) break;
 			}
@@ -485,7 +578,7 @@ export default class BazaarFlipper extends Behavior {
 				}
 				if (bot.currentWindow) bot.closeWindow(bot.currentWindow);
 
-				await sleep(1000);
+				await wait(1000);
 				const slot = findItemSlot(boosterCookie.name, bot?.inventory, true);
 				if (slot === -1) {
 					logger.error(
@@ -499,11 +592,10 @@ export default class BazaarFlipper extends Behavior {
 
 				logger.debug('Consuming cookie...');
 				bot.setQuickBarSlot(0);
-				if (slot !== bot?.quickBarSlot) await bot?.moveSlotItem(slot, bot?.inventory?.hotbarStart + bot?.quickBarSlot);
-				await sleep(250);
-				logger.debug(`${JSON.stringify(bot?.inventory?.slots[bot?.inventory?.hotbarStart + bot?.quickBarSlot])}`);
-				bot?.activateItem();
-				bot?.deactivateItem();
+				if (slot !== bot.quickBarSlot) await bot.moveSlotItem(slot, bot.inventory.hotbarStart + bot.quickBarSlot);
+				await wait(250);
+				bot.activateItem();
+				bot.deactivateItem();
 				await this.manager.waitForBotEvent('windowOpen');
 				await this.manager.clickItem('Consume Cookie', 0, waitForEvent(bot._client, 'window_items'));
 			} catch (err) {
@@ -512,26 +604,93 @@ export default class BazaarFlipper extends Behavior {
 		});
 	}
 
-	serialize() {
+	cookieBuffTime = 0;
+	async getCookieBuffTime() {
+		if (this.cookieBuffTime) return this.cookieBuffTime;
+
+		const {bot} = this.manager;
+		bot.setQuickBarSlot(8);
+		bot.activateItem();
+		bot.deactivateItem();
+		await this.manager.waitForBotEvent('windowOpen');
+		const cookieBuffItem = findItem('Booster Cookie', bot.currentWindow);
+		if (!cookieBuffItem) return 0;
+		const matches = getCleanLore(cookieBuffItem).match(
+			/Duration:(?:\s+(\d+)y)?(?:\s+(\d+)d)?(?:\s+(\d+)h)?(?:\s+(\d+)m)?(?:\s+(\d+)s)?/
+		);
+		if (!matches) return 0;
+		if (bot.currentWindow) bot.closeWindow(bot.currentWindow);
+		this.cookieBuffTime =
+			((Number(matches[1]) || 0) * 60 * 60 * 24 * 365 +
+				(Number(matches[2]) || 0) * 60 * 60 * 24 +
+				(Number(matches[3]) || 0) * 60 * 60 +
+				(Number(matches[4]) || 0) * 60 +
+				(Number(matches[5]) || 0)) *
+			1000;
+
+		return this.cookieBuffTime;
+	}
+
+	serialize(): FlipperUpdateData {
 		return {
-			behaviorName: this.getName(),
+			isInTimeout: this.isInTimeout,
 			state: this.state,
 			activeActivity: this.activeActivity,
-			isInTimeout: this.isInTimeout,
 			elapsedTime: this.timer.getElapsedTime(),
-
-			orders: this.manager.bazaar.orders,
-			ordersWorth: this.manager.bazaar.getOrdersWorth(),
-			inventoryWorth: this.manager.bazaar.getInvWorth(),
-			purse: this.manager.getPurse(),
-			spent: this.manager.bazaar.getSpent(),
-			total: this.manager.bazaar.getTotal(),
+			cycles: this.cycles,
+			totalWaitTime: this.totalWaitTime,
+			totalTimeout: this.totalTimeout,
 			startingTotal: this.startingTotal,
-			npcMode: this.manager.bazaar.npcMode,
-			onlineMembers: this.onlineMembers,
 			startingDailyLimit: this.startingDailyLimit,
-			usedDailyLimit: this.manager.bazaar.usedDailyLimit,
-			dailyLimit: Bazaar.DAILY_LIMIT,
+			profit: this.startingTotal ? this.manager.bazaar.lastValidated.total - this.startingTotal : undefined,
+			cookieBuffTime: this.cookieBuffTime,
+			onlineMembers: this.onlineMembers,
 		};
+	}
+}
+
+class Timer {
+	startTime?: number;
+	pauseTime?: number;
+	elapsedTime = 0;
+	isRunning = false;
+
+	start() {
+		if (!this.isRunning) {
+			this.isRunning = true;
+			if (this.startTime === undefined) this.startTime = Date.now() - this.elapsedTime;
+			else {
+				if (this.pauseTime !== undefined) {
+					const pausedDuration = Date.now() - this.pauseTime;
+					this.startTime += pausedDuration;
+				}
+			}
+			this.isRunning = true;
+		}
+	}
+
+	pause() {
+		if (this.isRunning) {
+			this.pauseTime = Date.now();
+			this.isRunning = false;
+		}
+	}
+
+	stop() {
+		if (this.isRunning || this.startTime !== undefined) {
+			this.startTime = undefined;
+			this.elapsedTime = 0;
+			this.isRunning = false;
+		}
+	}
+
+	getElapsedTime() {
+		if (this.startTime !== null) {
+			if (this.startTime !== undefined && this.isRunning) {
+				this.elapsedTime = Date.now() - this.startTime;
+			}
+			return this.elapsedTime;
+		}
+		return 0;
 	}
 }

@@ -7,7 +7,7 @@
   "mainVersion": "0.0.2",
   "private": true,
   "scripts": {
-    "dev": "ts-node-dev --cls --respawn --transpile-only --exit-child --watch src -- src/main/index.ts --nq --name TestingHost123",
+    "dev": "ts-node-dev --cls --respawn --transpile-only --exit-child --watch src -- src/main/index.ts --nq",
     "ts-node": "ts-node --transpile-only src/main/index.ts",
     "start": "yarn && tsc && cross-env NODE_ENV=production node ./dist/main/index.js",
     "test": "echo \"Error: no test specified\" && exit 1",

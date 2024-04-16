@@ -1,11 +1,9 @@
 import {Bot, BotEvents, createBot} from 'mineflayer';
 import Account from '../shared/account';
 import {ChildEvents, ChildToMain, Location, ManagerUpdateData, OnlineStatus, Persistent} from '../shared/types';
-import {persistentActions, sleep, waitForEvent, withTimeout} from '../shared/utils';
+import {persistentActions, wait, waitForEvent, withTimeout} from '../shared/utils';
 import logger from '../shared/logger';
-import {Window} from 'prismarine-windows';
 import {createClient} from 'minecraft-protocol';
-import {pathfinder} from 'mineflayer-pathfinder';
 import {ChatMessage} from 'prismarine-chat';
 import BotConfig from '../shared/bot-config';
 import Bazaar from './bazaar';
@@ -42,25 +40,6 @@ export default class BotManager {
 		});
 		this.bot = apply(bot);
 		this.bot.on(
-			'windowOpen',
-			(window: Window) => {
-				logger.debug(`windowOpen ${window.id}: ${window.title}`);
-
-				this.bot.pathfinder.stop();
-
-				this.bot.setControlState('forward', false);
-				this.bot.setControlState('back', false);
-
-				this.bot.setControlState('left', false);
-				this.bot.setControlState('right', false);
-
-				this.bot.setControlState('jump', false);
-				this.bot.setControlState('sneak', false);
-				this.bot.setControlState('sprint', false);
-			},
-			{persistent: true}
-		);
-		this.bot.on(
 			'spawn',
 			async () => {
 				logger.debug(`Spawned in as ${this.bot.username}!`);
@@ -71,7 +50,7 @@ export default class BotManager {
 				this.postUpdate();
 
 				this.spawnDelay = true;
-				await sleep(8000); // Wait a bit before sending commands
+				await wait(8000); // Wait a bit before sending commands
 				this.spawnDelay = false;
 
 				await this.updateLocation();
@@ -88,23 +67,18 @@ export default class BotManager {
 				this.postChatLog(message);
 
 				const str = message.toString().trimStart();
-				if (str.startsWith('[Important] This server will restart soon:')) {
+				if (str.startsWith('[Important] This server will restart soon')) {
 					await this.sendChat('/evacuate');
-					return;
-				}
-				if (str.startsWith('Sending to server ') || str.startsWith('Warping')) {
+				} else if (str.startsWith('Sending to server ') || str.startsWith('Warping')) {
 					try {
 						await this.waitForBotEvent('spawn', 15000);
 					} catch (err) {
 						logger.debug(`Error while listening for spawn event after warping: ${err}`);
 						this.bot.quit();
 					}
-					return;
-				}
-				if (str.startsWith('You need the Cookie Buff to use this feature!')) {
+				} else if (str.startsWith('You need the Cookie Buff to use this feature!')) {
 					logger.debug(`Detected no cookie buff for ${this.account.username}`);
 					this.hasCookie = false;
-					return;
 				}
 			},
 			{persistent: true}
@@ -136,7 +110,7 @@ export default class BotManager {
 				this.postNotification(
 					'Connection ended',
 					`Connection ended to hypixel.net, reason: ${reason ?? 'No reason provided'}`,
-					this.shouldReconnect ? 1 : 3
+					1
 				);
 
 				if (this.shouldReconnect) {
@@ -154,8 +128,6 @@ export default class BotManager {
 			},
 			{persistent: true}
 		);
-
-		this.bot.loadPlugin(pathfinder, {persistent: true});
 
 		this.bazaar = new Bazaar(this);
 		const events = ['beforeExit', 'SIGHUP', 'SIGINT', 'SIGTERM'];
@@ -299,11 +271,15 @@ export default class BotManager {
 				onMsaCode: (res) => {
 					logger.debug(JSON.stringify(res));
 					logger.info(
-						`First time sign in: ${res.message}. Please make sure to sign in using the correct email (${this.account.email})`
+						`First time sign in: ${res.message}. Please make sure to sign in using the correct email${
+							this.account.email ? ` (${this.account.email})` : ''
+						}`
 					);
 					this.postNotification(
 						'First time sign in',
-						`${res.message}. Please make sure to sign in using the correct email (${this.account.email})`,
+						`${res.message}. Please make sure to sign in using the correct email${
+							this.account.email ? ` (${this.account.email})` : ''
+						}`,
 						3
 					);
 				},
@@ -322,6 +298,7 @@ export default class BotManager {
 	async updateLocation(): Promise<void> {
 		const MAX_FAILS = 5;
 		for (let i = 0; i < MAX_FAILS; i++) {
+			if (this.onlineStatus !== 'online') return;
 			try {
 				await this.sendChat('/locraw');
 				const [message] = await this.waitForMessage(
@@ -343,9 +320,11 @@ export default class BotManager {
 				logger.error(`Error while trying to update location: ${err}`);
 			}
 		}
-		logger.error(`Failed to update location after ${MAX_FAILS} attempts, reconnecting`);
-		this.disconnect();
-		await this.connect();
+		if (this.onlineStatus === 'online') {
+			logger.error(`Failed to update location after ${MAX_FAILS} attempts, reconnecting`);
+			this.disconnect();
+			await this.connect();
+		}
 	}
 
 	lastMessageTime = 0;
@@ -358,7 +337,7 @@ export default class BotManager {
 			this.lastMessageTime = Date.now();
 			if (waitTime > 0) {
 				logger.debug(`Waiting ${waitTime}ms to send chat message...`);
-				await sleep(waitTime);
+				await wait(waitTime);
 			}
 		}
 		this.lastMessageTime = Date.now();
@@ -371,7 +350,7 @@ export default class BotManager {
 		const bot = this.bot;
 		logger.debug('Waiting for sign to open');
 		const packet = await waitForEvent(bot._client, 'open_sign_entity');
-		await sleep(250);
+		await wait(250);
 		const {x, y, z} = packet[0].location;
 		logger.debug(`Writing '${data}' ('${data.substring(0, 15)}') to sign at x${x} y${y} z${z}`);
 		const block = bot.blockAt(new Vec3(x, y, z));
@@ -381,7 +360,7 @@ export default class BotManager {
 
 	lastClickTime = 0;
 	async clickSlot<T>(slot: number, mouseButton?: 0 | 1, promise?: Promise<T>) {
-		await sleep(this.lastClickTime + 500 - Date.now());
+		await wait(this.lastClickTime + 500 - Date.now());
 		this.lastClickTime = Date.now();
 
 		const bot = this.bot;

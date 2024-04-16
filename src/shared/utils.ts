@@ -55,7 +55,7 @@ export const safeAsync = async <T, A>(
 		return [null, error];
 	}
 };
-export async function sleep(ms: number) {
+export async function wait(ms: number) {
 	if (ms <= 0) return;
 
 	return new Promise((resolve) => setTimeout(resolve, ms));
@@ -110,7 +110,7 @@ export const disableConsoleLog = (func: GenericFunction) => {
 export function withTimeout<T>(promise: Promise<T>, timeout?: number): Promise<T> {
 	return Promise.race([
 		promise,
-		sleep(timeout ?? PROMISE_TIMEOUT).then(() => {
+		wait(timeout ?? PROMISE_TIMEOUT).then(() => {
 			throw new Error(`Promise timed out after ${timeout ?? PROMISE_TIMEOUT}ms.`);
 		}),
 	]);

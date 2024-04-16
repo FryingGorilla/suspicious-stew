@@ -3,8 +3,7 @@ import logger from '../shared/logger';
 import {getArgValue} from '../shared/utils';
 import BotManager from './bot-manager';
 import Account from '../shared/account';
-import BazaarFlipper from './behaviors/bazaar-flipper';
-import {Behavior} from './behavior';
+import BazaarFlipper from './bazaar-flipper';
 import EventEmitter from 'events';
 import {rmSync} from 'fs';
 import {globals} from '../shared/globals';
@@ -36,11 +35,8 @@ async function main() {
 	const account = new Account(uuid);
 	await account.load();
 	const botManager = new BotManager(account);
-	let behavior: Behavior = new BazaarFlipper(botManager);
-	const setBehavior = (newBehavior: Behavior) => {
-		behavior.stop();
-		behavior = newBehavior;
-	};
+	await botManager.config.load();
+	const flipper = new BazaarFlipper(botManager);
 
 	const wrapper = new EventEmitter();
 	process.on('message', ({event, ...args}) => {
@@ -53,16 +49,12 @@ async function main() {
 
 	wrapper.on('get', () => {
 		botManager.postUpdate();
-		behavior.postUpdate();
+		flipper.postUpdate();
+		botManager.bazaar.postUpdate();
 	});
-	wrapper.on('behavior::set', () => {
-		//TODO: implement this
-		const newBehavior = behavior;
-		setBehavior(newBehavior);
-	});
-	wrapper.on('behavior::start', () => behavior.start());
-	wrapper.on('behavior::pause', () => behavior.pause());
-	wrapper.on('behavior::stop', () => behavior.stop());
+	wrapper.on('behavior::start', () => flipper.start());
+	wrapper.on('behavior::pause', () => flipper.pause());
+	wrapper.on('behavior::stop', () => flipper.stop());
 	wrapper.on('botManager::sendChat', ({message}) => botManager.sendChat(message));
 	wrapper.on('botManager::clickSlot', ({slot}) => botManager.clickSlot(slot));
 	wrapper.on('botManager::updateOrders', () => {
@@ -71,7 +63,7 @@ async function main() {
 			.then(() => botManager.bazaar.openManageOrders())
 			.then(() => {
 				botManager.postUpdate();
-				behavior.postUpdate();
+				flipper.postUpdate();
 			});
 	});
 	wrapper.on('botManager::connect', () => botManager.connect());
@@ -87,7 +79,7 @@ async function main() {
 		botManager.postUpdate();
 	});
 	wrapper.on('cache::clear', () => {
-		behavior.stop();
+		flipper.stop();
 		try {
 			rmSync(globals.ACCOUNT_CACHE_DIR(account.email ?? ''), {force: true, recursive: true});
 		} catch (err) {

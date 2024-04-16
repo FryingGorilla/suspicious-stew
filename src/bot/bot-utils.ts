@@ -5,12 +5,12 @@ import logger from '../shared/logger';
 export function clean(text: string) {
 	return text?.replace(/§[0-9a-fk-or]/gi, '');
 }
-export function findItem(name: string, window?: Window | null, inventory?: boolean): Item | null {
+export function findItem(name: string, window: Window | null, inventory?: boolean): Item | null {
 	if (!window) return null;
 	const slot = findItemSlot(name, window, inventory);
 	return window.slots[slot];
 }
-export function findItemSlot(customName: string, window: Window, inventory?: boolean): number {
+export function findItemSlot(customName: string, window: Window | null, inventory?: boolean): number {
 	if (!window) {
 		logger.debug(`Tried to find '${customName}' in an undefined window`);
 		return -1;
