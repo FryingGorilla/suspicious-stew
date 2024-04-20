@@ -9,12 +9,16 @@
   "scripts": {
     "dev": "ts-node-dev --cls --respawn --transpile-only --exit-child --watch src -- src/main/index.ts --nq",
     "ts-node": "ts-node --transpile-only src/main/index.ts",
-    "start": "yarn && tsc && cross-env NODE_ENV=production node ./dist/main/index.js",
+    "start": "yarn && tsc && cross-env NODE_ENV=production node ./dist/main/index.js --nq",
     "test": "echo \"Error: no test specified\" && exit 1",
     "build": "yarn && tsc && yarn package",
     "package": "concurrently \"yarn package:main\" \"yarn package:bot\"",
-    "package:main": "pkg src/main --compress GZip --output executables/main/%npm_package_name%-%npm_package_mainVersion%",
-    "package:bot": "pkg src/bot --compress GZip --output executables/bot/bot-%npm_package_botVersion%",
+    "package:main": "run-script-os",
+    "package:bot": "run-script-os",
+    "package:main:default": "pkg src/main --compress GZip --output executables/main/$npm_package_name-$npm_package_mainVersion",
+    "package:bot:default": "pkg src/bot --compress GZip --output executables/bot/bot-$npm_package_botVersion",
+    "package:main:win32": "pkg src/main --compress GZip --output executables/main/%npm_package_name%-%npm_package_mainVersion%",
+    "package:bot:win32": "pkg src/bot --compress GZip --output executables/bot/bot-%npm_package_botVersion%",
     "upload": "node ./scripts/upload.js"
   },
   "dependencies": {
@@ -50,6 +54,7 @@
     "cross-env": "^7.0.3",
     "eslint": "^8.57.0",
     "pkg": "^5.8.1",
+    "run-script-os": "^1.1.6",
     "ts-node": "^10.9.2",
     "ts-node-dev": "^2.0.0",
     "tsconfig-paths": "^4.2.0",

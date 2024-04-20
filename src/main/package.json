@@ -7,7 +7,7 @@
         ],
         "assets": [
             "../../node_modules/ngrok/bin/*",
-            "../../node_modules/sqlite3/**/*.node",
+            "../../node_modules/sqlite3/**/*",
             "../../node_modules/axios/dist/node/axios.cjs"
         ],
         "targets": [

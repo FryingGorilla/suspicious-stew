@@ -116,6 +116,20 @@ export function withTimeout<T>(promise: Promise<T>, timeout?: number): Promise<T
 	]);
 }
 
+export async function retry<A extends [], F extends (...args: A) => any>(max_tries: number, func: F, ...args: A): Promise<Awaited<ReturnType<F>>> {
+	let lastError: unknown;
+	for (let tries = 0; tries < max_tries; tries++) {
+		try {
+			return await func(...args);
+		}
+		catch(err) {
+			logger.error(String(err));
+			lastError = err;
+		}
+	}
+	throw new Error(`${func.name} failed after ${max_tries} tries: ${lastError}`)
+}
+
 export function waitForEvent<T extends EventEmitter>(emitter: T, eventName: string, timeout?: number) {
 	const ac = new AbortController();
 	if (timeout !== -1) {

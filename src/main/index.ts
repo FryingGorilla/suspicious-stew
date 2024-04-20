@@ -5,12 +5,17 @@ import axios from 'axios';
 import ngrok, {Ngrok} from 'ngrok';
 import path from 'path';
 import fs from 'fs';
-import {execSync} from 'child_process';
+import child_process, {spawn, execSync} from 'child_process';
 import os from 'os';
 import ip from 'ip';
 import Server from './server';
 import {AppDataSource} from './db/data-source';
 import BotConfig from '../shared/bot-config';
+import { downloadBotBinary, getBotBinaryPath } from './bot-binary';
+import { once } from 'events';
+import { promisify } from 'util';
+import { wait } from '../shared/utils';
+const exec = promisify(child_process.exec)
 
 let lastEx: Error;
 let lastExTime = 0;
@@ -127,10 +132,23 @@ async function main() {
 		await defaultConfig.save();
 	}
 
+	await downloadBotBinary();
+	await wait(1000);
+	try {
+		logger.debug('Testing validity')
+		const child = spawn(getBotBinaryPath());
+		await once(child, 'spawn');
+		child.kill()
+	}
+	catch(err) {
+		logger.error(`Bot binary is corrupted: ${err}`);
+		await downloadBotBinary(true)
+	}
+
 	// Load existing accounts
 	const files = (await fs.promises.readdir(globals.ACCOUNTS_DIR, {withFileTypes: true})).filter((d) => d.isFile());
 	for (const file of files) {
-		await Server.get().addAccount(file.name);
+		Server.get().addAccount(file.name);
 	}
 
 	await AppDataSource.initialize();

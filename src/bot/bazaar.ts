@@ -195,7 +195,7 @@ export default class Bazaar {
 				);
 				if (isNaN(maxAmount)) {
 					maxAmount = 256;
-					logger.error(
+					logger.debug(
 						`Failed to find maximum amount for ${order.productId} ${JSON.stringify(
 							findItem('Custom Amount', bot.currentWindow) ?? {}
 						)}`
@@ -217,7 +217,7 @@ export default class Bazaar {
 			);
 			if (isNaN(topPrice)) {
 				logger.error(
-					`Failed to find maximum amount for ${order.productId} ${JSON.stringify(
+					`Failed to top price for ${order.productId} ${JSON.stringify(
 						findItem('Custom Amount', bot.currentWindow) ?? {}
 					)}`
 				);
@@ -232,7 +232,8 @@ export default class Bazaar {
 			} else await this.manager.clickItem(order.type === 'buy' ? 'Top Order +0.1' : 'Best Offer -0.1');
 
 			// Check for limits and cooldown
-			const item = findItem(order.type === 'buy' ? 'Buy Order' : 'Sell Offer', bot.currentWindow);
+			const item = findItem(order.type === 'buy' ? 'Buy Order' : 'Sell Offer', bot.currentWindow) ?? findItem(order.type === 'buy' ? 'Confirm Buy Order' : 'Confirm Sell Offer', bot.currentWindow);
+			if (!item) throw new Error(`Failed to find ${order.type === 'buy' ? 'Buy Order' : 'Sell Offer'} item`)
 			const lore = getCleanLore(item);
 			if (lore.includes('Placing orders is on cooldown!')) {
 				logger.debug('On cooldown, trying again in 1 minute...');
@@ -252,13 +253,13 @@ export default class Bazaar {
 				let price = Number(/Price per unit: ([\d,]*\.?\d)/.exec(lore)?.at(1)?.replaceAll(',', ''));
 				if (isNaN(price)) {
 					price = (order.type === 'buy' ? product.buyPrice : product.sellPrice) ?? 1;
-					logger.error(`Failed to find price for ${JSON.stringify(order)} ${lore}`);
+					logger.debug(`Failed to find price for ${JSON.stringify(order)} ${lore}`);
 				}
 
 				let amount = Number(/(Selling|Order): ([\d,]+)x/.exec(lore)?.at(2)?.replaceAll(',', ''));
 				if (isNaN(amount)) {
 					amount = order.amount ?? 1;
-					logger.error(`Failed to find amount for ${JSON.stringify(order)} ${lore}`);
+					logger.debug(`Failed to find amount for ${JSON.stringify(order)} ${lore}`);
 				}
 
 				this.usedDailyLimit += amount * price;
@@ -272,7 +273,7 @@ export default class Bazaar {
 				);
 			}
 		} catch (err) {
-			logger.error(`Failed to create order ${JSON.stringify(order)}: ${err}`);
+			throw new Error(`Failed to create order ${JSON.stringify(order)} in window: ${bot.currentWindow?.title ?? "untitled"} ${bot.currentWindow?.containerItems().map((i) => i?.customName).join(', ')}: ${err}`)
 		}
 	}
 
@@ -302,7 +303,7 @@ export default class Bazaar {
 				}
 			}
 		} catch (err) {
-			logger.error(`Failed to cancel order ${JSON.stringify(order)}: ${err}`);
+			throw new Error(`Failed to cancel order ${JSON.stringify(order)}: ${err}`);
 		}
 	}
 
@@ -324,7 +325,7 @@ export default class Bazaar {
 			}
 			if (this.findOrderSlot(order) !== slot) this.expectedOrders--;
 		} catch (err) {
-			logger.error(`Failed to claim order ${JSON.stringify(order)}: ${err}`);
+			throw new Error(`Failed to claim order ${JSON.stringify(order)}: ${err}`);
 		}
 	}
 
@@ -349,7 +350,7 @@ export default class Bazaar {
 			let amount = Number(/for ([\d,]+)x/.exec(getCleanLore(item))?.at(1)?.replaceAll(',', '') ?? undefined);
 			if (isNaN(amount)) {
 				amount = order.amount ?? 1;
-				logger.error(`Failed to find amount for ${JSON.stringify(order)} ${getCleanLore(item)}`);
+				logger.debug(`Failed to find amount for ${JSON.stringify(order)} ${getCleanLore(item)}`);
 			}
 
 			let topPrice =
@@ -362,14 +363,14 @@ export default class Bazaar {
 
 			if (isNaN(topPrice)) {
 				topPrice = product.sellPrice;
-				logger.error(`Failed to find top price for ${JSON.stringify(order)} ${getCleanLore(item)}`);
+				logger.debug(`Failed to find top price for ${JSON.stringify(order)} ${getCleanLore(item)}`);
 			}
 
 			await this.manager.clickItem('Flip Order', 0, this.manager.writeToSign(String(topPrice)));
 			this.usedDailyLimit += amount * topPrice;
 			this.checkLimit();
 		} catch (err) {
-			logger.error(`Failed to flip order ${JSON.stringify(order)}: ${err}`);
+			throw new Error(`Failed to flip order ${JSON.stringify(order)}: ${err}`);
 		}
 	}
 
@@ -388,7 +389,7 @@ export default class Bazaar {
 			);
 			if (isNaN(maxAmount)) {
 				maxAmount = 256;
-				logger.error(
+				logger.debug(
 					`Failed to find maximum amount for ${product.id} ${JSON.stringify(
 						findItem('Custom Amount', bot.currentWindow) ?? {}
 					)}`
@@ -405,7 +406,7 @@ export default class Bazaar {
 			this.usedDailyLimit += amount * product.instantBuyPrice;
 			this.checkLimit();
 		} catch (err) {
-			logger.error(`Error while instant-buying ${amount}x ${product.id}: ${err}`);
+			throw new Error(`Error while instant-buying ${amount}x ${product.id}: ${err}`);
 		}
 	}
 
@@ -428,7 +429,7 @@ export default class Bazaar {
 				await this.manager.clickItem('Selling whole inventory');
 			}
 		} catch (err) {
-			logger.error(`Error while instant-selling ${product ? product.id : 'INVENTORY'}: ${err}`);
+			throw new Error(`Error while instant-selling ${product ? product.id : 'INVENTORY'}: ${err}`);
 		}
 		this.checkLimit();
 	}
@@ -480,7 +481,7 @@ export default class Bazaar {
 			const lore = getCleanLore(item);
 			const product = this.products.find((e) => e.name === match[2]);
 			if (!product) {
-				logger.error(`Failed to find product for item ${name} (${match[2]}) out of ${this.products.length} products`);
+				logger.debug(`Failed to find product for item ${name} (${match[2]}) out of ${this.products.length} products`);
 				continue;
 			}
 

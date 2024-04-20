@@ -326,11 +326,11 @@ export function bazaarApi() {
 				.filter(({isReal}) => isReal)
 				.map(({id, maxStack, name}) => {
 					const product = products[id];
-					if (!product) return null;
-					const buyPrice = product?.sell_summary[0]?.pricePerUnit ? product?.sell_summary[0]?.pricePerUnit + 0.1 : 0;
-					const sellPrice = product?.buy_summary[0]?.pricePerUnit ? product?.buy_summary[0]?.pricePerUnit - 0.1 : 0;
-					const hourlyBuyMovement = (product?.quick_status?.buyMovingWeek ?? 0) / 7 / 24;
-					const hourlySellMovement = (product?.quick_status?.sellMovingWeek ?? 0) / 7 / 24;
+					if (!product || !product.quick_status) return null;
+					const buyPrice = product.sell_summary[0]?.pricePerUnit ? product.sell_summary[0]?.pricePerUnit + 0.1 : 0;
+					const sellPrice = product.buy_summary[0]?.pricePerUnit ? product.buy_summary[0]?.pricePerUnit - 0.1 : 0;
+					const hourlyBuyMovement = (product.quick_status.buyMovingWeek ?? 0) / 7 / 24;
+					const hourlySellMovement = (product.quick_status.sellMovingWeek ?? 0) / 7 / 24;
 					const margin = sellPrice * 0.99 - buyPrice;
 
 					const profitability = margin * Math.min(hourlyBuyMovement, hourlySellMovement);

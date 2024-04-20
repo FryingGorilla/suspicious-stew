@@ -4,14 +4,18 @@ import fs from 'fs';
 import {BIN_DIR, RELEASES_URL} from '../shared/globals';
 import logger from '../shared/logger';
 import EventEmitter from 'events';
-
-export async function getBotBinary(forceDownload?: boolean): Promise<string> {
+import os from 'os';
+import child_process, { execSync } from 'child_process'
+import { promisify } from 'util';
+export const getBotBinaryPath = () => botBinaryPath;
+let botBinaryPath = ''
+export async function downloadBotBinary(forceDownload?: boolean) {
 	const getSuffix = () => {
 		if (process.platform === 'win32') return 'win.exe';
 		if (process.platform === 'darwin') return 'macos';
 		return 'linux';
 	};
-	return downloadLatest(new RegExp(`^bot-\\d+.\\d+.\\d+-${getSuffix()}$`), forceDownload);
+	botBinaryPath =  await downloadLatest(new RegExp(`^bot-\\d+.\\d+.\\d+-${getSuffix()}$`), forceDownload);
 }
 
 const downloads: Record<string, {download: Promise<string>; url: string}> = {};
@@ -36,18 +40,22 @@ const downloadExecutable = async (url: string, filename: string) => {
 		url,
 	};
 
+	let writer: fs.WriteStream | undefined = undefined;
 	try {
 		const response = await axios({url, responseType: 'stream'});
 		const fullPath = path.join(BIN_DIR, filename);
 		await fs.promises.mkdir(BIN_DIR, {recursive: true});
 
-		const writer = fs.createWriteStream(fullPath);
+		writer = fs.createWriteStream(fullPath);
 		response.data.pipe(writer);
 
 		await new Promise((resolve, reject) => {
-			writer.on('finish', resolve);
-			writer.on('error', reject);
+			writer?.on('finish', resolve);
+			writer?.on('error', reject);
 		});
+		if (os.type() != 'Windows_NT') {
+			execSync(`chmod +x ${fullPath}`);
+		}
 		emitter.emit('downloaded', fullPath);
 		return fullPath;
 	} catch (err) {
@@ -55,6 +63,7 @@ const downloadExecutable = async (url: string, filename: string) => {
 		throw new Error(`Download from ${url} failed: ${err}`);
 	} finally {
 		logger.info('Download finished');
+		if (writer && !writer.closed) writer.close()
 		delete downloads[filename];
 	}
 };

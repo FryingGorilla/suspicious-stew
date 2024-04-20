@@ -10,7 +10,7 @@ import {ExtendedError} from 'socket.io/dist/namespace';
 import http from 'http';
 import {IS_IN_DEV, globals} from '../../shared/globals';
 import {ChildProcess, spawn} from 'child_process';
-import {getBotBinary} from '../bot-binary';
+import {downloadBotBinary, getBotBinaryPath} from '../bot-binary';
 import Config from '../main-config';
 import {bazaarApi} from '../db/bazaar-api';
 import Account from '../../shared/account';
@@ -103,7 +103,7 @@ export default class Server {
 
 	public async addAccount(uuid: string) {
 		const {io, accounts} = this;
-		const command = IS_IN_DEV ? 'node' : await getBotBinary();
+		const command = IS_IN_DEV ? 'node' : getBotBinaryPath();
 		if (!command) return;
 
 		const args = ['--uuid', uuid];
@@ -117,15 +117,7 @@ export default class Server {
 			);
 
 		logger.debug(`Spawning process for ${uuid}: ${command} ${args.join(' ')}`);
-
-		let child: ChildProcess;
-		try {
-			child = spawn(command, args, {stdio: ['inherit', 'inherit', 'inherit', 'ipc']});
-		} catch (err) {
-			logger.error(`Failed to spawn process for ${uuid}: ${err}`);
-			if (IS_IN_DEV) return;
-			child = spawn(await getBotBinary(true), args, {stdio: ['inherit', 'inherit', 'inherit', 'ipc']});
-		}
+		let child = spawn(command, args, {stdio: ['inherit', 'inherit', 'inherit', 'ipc']});
 
 		child.setMaxListeners(50);
 		child.on('spawn', () => logger.debug(`Process for ${uuid} online`));

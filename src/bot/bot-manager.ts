@@ -69,16 +69,12 @@ export default class BotManager {
 				const str = message.toString().trimStart();
 				if (str.startsWith('[Important] This server will restart soon')) {
 					await this.sendChat('/evacuate');
-				} else if (str.startsWith('Sending to server ') || str.startsWith('Warping')) {
-					try {
-						await this.waitForBotEvent('spawn', 15000);
-					} catch (err) {
-						logger.debug(`Error while listening for spawn event after warping: ${err}`);
-						this.bot.quit();
-					}
 				} else if (str.startsWith('You need the Cookie Buff to use this feature!')) {
 					logger.debug(`Detected no cookie buff for ${this.account.username}`);
 					this.hasCookie = false;
+				}
+				else if (str.startsWith('Please dont\'t spam the command')) {
+					this.lastMessageTime = Date.now() + 5000;
 				}
 			},
 			{persistent: true}
@@ -156,24 +152,29 @@ export default class BotManager {
 	}
 
 	async waitForReply<R, Event extends ChildEvents>(event: Event, data: ChildToMain<Event>['data']): Promise<R> {
-		return withTimeout(
-			new Promise((resolve, reject) => {
-				if (process) {
-					const id = this.postEvent(event, data);
-					const listener = (message: unknown) => {
-						if (!message) return;
-						if (typeof message !== 'object') return;
-						if (!('event' in message) || message.event !== event) return;
-						if (!('id' in message) || message.id !== id) return;
-						if (!('data' in message)) return;
-
-						process.off('message', listener);
-						resolve(message.data as R);
-					};
-					process.on('message', listener);
-				} else reject(new Error('Process is not defined'));
-			})
-		);
+		try {
+			return await withTimeout(
+				new Promise((resolve, reject) => {
+					if (process) {
+						const id = this.postEvent(event, data);
+						const listener = (message: unknown) => {
+							if (!message) return;
+							if (typeof message !== 'object') return;
+							if (!('event' in message) || message.event !== event) return;
+							if (!('id' in message) || message.id !== id) return;
+							if (!('data' in message)) return;
+	
+							process.off('message', listener);
+							resolve(message.data as R);
+						};
+						process.on('message', listener);
+					} else reject(new Error('Process is not defined'));
+				})
+			)
+		}
+		catch(err) {
+			throw new Error(`Failed to get reply from parent process: ${err}`)
+		}
 	}
 
 	serialize(): ManagerUpdateData {
@@ -303,7 +304,6 @@ export default class BotManager {
 				await this.sendChat('/locraw');
 				const [message] = await this.waitForMessage(
 					[/Please don't spam the command!/, /You are sending too many commands!/, /{"server":/],
-					true,
 					2000
 				);
 				if (!message.startsWith('{"server":')) continue;
@@ -331,7 +331,7 @@ export default class BotManager {
 	async sendChat(message: string, ignoreDelay?: boolean) {
 		if (this.bot.currentWindow) this.bot.closeWindow(this.bot.currentWindow);
 		if (!ignoreDelay) {
-			const delay = 750;
+			const delay = 1000;
 			const waitTime = delay - (Date.now() - this.lastMessageTime);
 
 			this.lastMessageTime = Date.now();
@@ -347,15 +347,21 @@ export default class BotManager {
 	}
 
 	async writeToSign(data: string) {
-		const bot = this.bot;
-		logger.debug('Waiting for sign to open');
-		const packet = await waitForEvent(bot._client, 'open_sign_entity');
-		await wait(250);
-		const {x, y, z} = packet[0].location;
-		logger.debug(`Writing '${data}' ('${data.substring(0, 15)}') to sign at x${x} y${y} z${z}`);
-		const block = bot.blockAt(new Vec3(x, y, z));
-		if (!block) return logger.debug('Failed to write to sign: block not found');
-		bot.updateSign(block, data.substring(0, 15));
+		try {
+
+			const bot = this.bot;
+			logger.debug('Waiting for sign to open');
+			const packet = await waitForEvent(bot._client, 'open_sign_entity');
+			await wait(250);
+			const {x, y, z} = packet[0].location;
+			logger.debug(`Writing '${data}' ('${data.substring(0, 15)}') to sign at x${x} y${y} z${z}`);
+			const block = bot.blockAt(new Vec3(x, y, z));
+			if (!block) throw new Error('block not found');
+			bot.updateSign(block, data.substring(0, 15));
+		}
+		catch(err) {
+			throw new Error(`Failed to write to sign: ${err}`);
+		}
 	}
 
 	lastClickTime = 0;
@@ -365,7 +371,7 @@ export default class BotManager {
 
 		const bot = this.bot;
 		logger.debug(`Clicking slot ${slot}: ${bot.currentWindow && bot.currentWindow.containerItems()[slot]?.customName}`);
-		if (!bot.currentWindow) return logger.debug('Failed to click: no current window');
+		if (!bot.currentWindow) throw new Error('Failed to click: no current window');
 
 		bot.currentWindow.requiresConfirmation = false;
 		bot.clickWindow(slot, mouseButton ?? 0, 0);
@@ -378,7 +384,6 @@ export default class BotManager {
 
 	async clickItem<T>(name: string, mouseButton?: 0 | 1, promise?: Promise<T>) {
 		logger.debug(`Clicking item ${name}`);
-		if (!this.bot.currentWindow) return logger.debug('Failed to click: no current window');
 		const slot = findItemSlot(name, this.bot.currentWindow);
 		if (slot === -1) {
 			throw new Error(`Failed to find '${name}'`);
@@ -407,7 +412,7 @@ export default class BotManager {
 		});
 	}
 
-	async waitForMessage(regexps: RegExp[], skipPlayerMessages?: boolean, timeout?: number) {
+	async waitForMessage(regexps: RegExp[], timeout?: number, skipPlayerMessages = true) {
 		return this.addListenerWithTimeout(
 			'messagestr',
 			(message, position) => {

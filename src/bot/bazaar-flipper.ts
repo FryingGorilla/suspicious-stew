@@ -1,5 +1,5 @@
 import logger from '../shared/logger';
-import {formatDuration, formatNumber, getHours, wait, waitForEvent} from '../shared/utils';
+import {formatDuration, formatNumber, getHours, retry, wait, waitForEvent} from '../shared/utils';
 import {FlipperState, FlipperUpdateData, Order} from '../shared/types';
 import {ChatMessage} from 'prismarine-chat';
 import BotManager from './bot-manager';
@@ -74,7 +74,7 @@ export default class BazaarFlipper {
 					this.postUpdate();
 				}
 				if (!this.isInTimeout) this.main && (await this.main());
-				await wait(1000);
+				await wait(2500);
 			} catch (err) {
 				logger.error(`An error occurred in the main function: ${err}`);
 			}
@@ -208,9 +208,17 @@ export default class BazaarFlipper {
 			return await this.changeActivity('failsafe', async () => {
 				this.manager.postNotification(`Failsafe activated`, `Current location: ${this.manager.location}`, 2);
 				logger.debug(`Failsafe activated: Current location: ${this.manager.location}`);
-				if (this.manager.location === 'skyblock' || this.manager.location === 'hub') await this.manager.sendChat('/is');
-				else if (this.manager.location === 'limbo') await this.manager.sendChat('/l');
-				else if (this.manager.location === 'lobby') await this.manager.sendChat('/skyblock');
+				
+				const message = this.manager.location === 'limbo' ? '/l' : (this.manager.location === 'lobby' ? '/skyblock' : '/is')
+				await retry(5, async () => {
+					await wait(2000);
+					await this.manager.sendChat(message);
+					await manager.waitForBotEvent('spawn');
+				}).catch(() => {
+					logger.debug(`Disconnecting: Failed to warp`);
+					this.manager.bot.quit();
+				})
+
 			});
 		}
 
@@ -223,7 +231,6 @@ export default class BazaarFlipper {
 
 		await manager.bazaar.updateProducts();
 
-		// TODO: Auto cookie
 		if (!manager.hasCookie) {
 			logger.error('Stopping flipper: no cookie');
 			manager.postNotification(
@@ -353,7 +360,7 @@ export default class BazaarFlipper {
 						`Remaining space: ${manager.bazaar.getRemainingOrderSpace('buy')}`,
 						`Orders: ${JSON.stringify(orders)}`,
 					]);
-					for (const order of orders) await manager.bazaar.createOrder(order);
+					for (const order of orders) await retry(5, () => manager.bazaar.createOrder(order));
 				} else {
 					logger.debug([
 						`Not creating any more buy orders`,
@@ -457,7 +464,7 @@ export default class BazaarFlipper {
 				logger.debug('Picking up stash');
 				if (bot.currentWindow) bot.closeWindow(bot.currentWindow);
 				await this.manager.sendChat('/pickupstash');
-				const message = await this.manager.waitForMessage([/stash/], true);
+				const message = await this.manager.waitForMessage([/stash/]);
 				if (message.includes('all') || message.includes("isn't holding any")) isEmpty = true;
 
 				if (instantSell) await this.manager.bazaar.instantSell();
