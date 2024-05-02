@@ -23,7 +23,7 @@ export default class BotManager {
 	hasCookie = true;
 
 	shouldReconnect = false;
-	spawnDelay = false;
+	spawnDelay = true;
 
 	constructor(public account: Account) {
 		this.config = new BotConfig(account.config);
@@ -49,7 +49,6 @@ export default class BotManager {
 				this.onlineStatus = 'online';
 				this.postUpdate();
 
-				this.spawnDelay = true;
 				await wait(8000); // Wait a bit before sending commands
 				this.spawnDelay = false;
 
@@ -99,6 +98,8 @@ export default class BotManager {
 		this.bot.on(
 			'end',
 			(reason: string) => {
+				this.spawnDelay = true;
+				this.location = 'lobby'
 				logger.debug(`Connection ended: ${reason || 'No reason'}`);
 				this.onlineStatus = 'offline';
 				this.postUpdate();
