@@ -49,6 +49,7 @@ export default class BotManager {
 				this.onlineStatus = 'online';
 				this.postUpdate();
 
+				this.spawnDelay = true;
 				await wait(8000); // Wait a bit before sending commands
 				this.spawnDelay = false;
 
