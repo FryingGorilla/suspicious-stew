@@ -54,7 +54,7 @@ const downloadExecutable = async (url: string, filename: string) => {
 			writer?.on('error', reject);
 		});
 		if (os.type() != 'Windows_NT') {
-			execSync(`chmod +x ${fullPath}`);
+			execSync(`chmod 777 ${fullPath}`);
 		}
 		emitter.emit('downloaded', fullPath);
 		return fullPath;

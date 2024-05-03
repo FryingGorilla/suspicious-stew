@@ -5,7 +5,7 @@ import axios from 'axios';
 import ngrok, {Ngrok} from 'ngrok';
 import path from 'path';
 import fs from 'fs';
-import child_process, {spawn, execSync} from 'child_process';
+import {spawn, execSync} from 'child_process';
 import os from 'os';
 import ip from 'ip';
 import Server from './server';
@@ -13,9 +13,7 @@ import {AppDataSource} from './db/data-source';
 import BotConfig from '../shared/bot-config';
 import { downloadBotBinary, getBotBinaryPath } from './bot-binary';
 import { once } from 'events';
-import { promisify } from 'util';
 import { wait } from '../shared/utils';
-const exec = promisify(child_process.exec)
 
 let lastEx: Error;
 let lastExTime = 0;
@@ -90,7 +88,7 @@ async function main() {
 					const targetFilePath = path.join(targetDir, file);
 
 					await fs.promises.copyFile(sourceFilePath, targetFilePath);
-					if (globals.IS_WINDOWS) execSync(`chmod +x ${targetFilePath}`);
+					if (globals.IS_WINDOWS) execSync(`chmod 777 ${targetFilePath}`);
 					logger.debug(`Copied ${sourceFilePath} to ${targetFilePath}`);
 				}
 
