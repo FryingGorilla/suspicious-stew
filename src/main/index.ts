@@ -93,7 +93,7 @@ async function main() {
           const targetFilePath = path.join(targetDir, file);
 
           await fs.promises.copyFile(sourceFilePath, targetFilePath);
-          if (globals.IS_WINDOWS) execSync(`chmod 777 ${targetFilePath}`);
+          if (!globals.IS_WINDOWS) execSync(`chmod 777 ${targetFilePath}`);
           logger.debug(`Copied ${sourceFilePath} to ${targetFilePath}`);
         }
 
