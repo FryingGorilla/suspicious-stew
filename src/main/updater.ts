@@ -28,6 +28,7 @@ export async function checkForUpdates() {
 			stdio: "inherit",
 		});
 		process.unref();
+		fs.rmSync(__filename);
 		await shutdown();
 	}
 	botBinaryPath = (
@@ -48,31 +49,16 @@ function calculateSHA256(filePath: string) {
 
 const downloads: Record<string, { download: Promise<string>; url: string }> =
 	{};
-const downloadExecutable = async (url: string, filename: string) => {
-	if (downloads[filename]) return downloads[filename].download;
-	logger.info(`Downloading ${filename} from ${url}`);
-
-	const emitter = new EventEmitter();
-	downloads[filename] = {
-		download: new Promise((resolve, reject) => {
-			const downloadedListener = (fullPath: string) => {
-				emitter.removeListener("error", errorListener);
-				resolve(fullPath);
-			};
-			const errorListener = (err: unknown) => {
-				emitter.removeListener("downloaded", downloadedListener);
-				reject(err);
-			};
-			emitter.once("downloaded", downloadedListener);
-			emitter.once("error", errorListener);
-		}),
-		url,
-	};
-
+const downloadExecutable = async (
+	url: string,
+	filePath: string,
+	sha256: string
+) => {
+	logger.info(`Downloading ${filePath} from ${url}`);
 	let writer: fs.WriteStream | undefined = undefined;
 	try {
 		const response = await axios({ url, responseType: "stream" });
-		const fullPath = path.join(BIN_DIR, filename);
+		const fullPath = path.join(BIN_DIR, filePath);
 		await fs.promises.mkdir(BIN_DIR, { recursive: true });
 
 		writer = fs.createWriteStream(fullPath);
@@ -85,15 +71,16 @@ const downloadExecutable = async (url: string, filename: string) => {
 		if (!globals.IS_WINDOWS) {
 			execSync(`chmod +x ${fullPath}`);
 		}
-		emitter.emit("downloaded", fullPath);
+		logger.info("Download finished");
+		if ((await calculateSHA256(filePath)) !== sha256) {
+			logger.error("Download got corrupted, redownloading...");
+			await downloadExecutable(url, filePath, sha256);
+		}
 		return fullPath;
 	} catch (err) {
-		emitter.emit("error", new Error(`Download from ${url} failed: ${err}`));
 		throw new Error(`Download from ${url} failed: ${err}`);
 	} finally {
-		logger.info("Download finished");
 		if (writer && !writer.closed) writer.close();
-		delete downloads[filename];
 	}
 };
 
@@ -114,13 +101,13 @@ const downloadLatest = async (
 		throw new Error(`Failed to get latest release: ${err}`);
 	}
 	if (!asset) throw new Error(`No matching asset found for ${nameRegex}`);
+	if (!sumAsset) throw new Error(`No matching asset found for sha256sum.txt`);
+	const sha256sum = JSON.parse(sumAsset);
+	if (!(asset.name in sha256sum))
+		throw new Error(`No sha256 sum found for ${asset.name}`);
 
 	await fs.promises.mkdir(BIN_DIR, { recursive: true });
 	if (!forceDownload) {
-		if (!sumAsset) throw new Error(`No matching asset found for sha256sum.txt`);
-		const sha256sum = JSON.parse(sumAsset);
-		if (!(asset.name in sha256sum))
-			throw new Error(`No sha256 sum found for ${asset.name}`);
 		const files = await fs.promises.readdir(BIN_DIR, {
 			withFileTypes: true,
 		});
@@ -157,7 +144,11 @@ const downloadLatest = async (
 		}
 	}
 	return {
-		path: await downloadExecutable(asset.browser_download_url, asset.name),
+		path: await downloadExecutable(
+			asset.browser_download_url,
+			asset.name,
+			sha256sum[asset.name]
+		),
 		existing: false,
 	};
 };
