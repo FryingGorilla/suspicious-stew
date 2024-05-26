@@ -1,19 +1,31 @@
-import {Bot, BotEvents, createBot} from 'mineflayer';
-import Account from '../shared/account';
-import {ChildEvents, ChildToMain, Location, ManagerUpdateData, OnlineStatus, Persistent} from '../shared/types';
-import {persistentActions, wait, waitForEvent, withTimeout} from '../shared/utils';
-import logger from '../shared/logger';
-import {createClient} from 'minecraft-protocol';
-import {ChatMessage} from 'prismarine-chat';
-import BotConfig from '../shared/bot-config';
-import Bazaar from './bazaar';
-import {PROMISE_TIMEOUT, globals} from '../shared/globals';
-import {Vec3} from 'vec3';
-import {findItemSlot} from './bot-utils';
+import { Bot, BotEvents, createBot } from "mineflayer";
+import Account from "../shared/account";
+import {
+	ChildEvents,
+	ChildToMain,
+	Location,
+	ManagerUpdateData,
+	OnlineStatus,
+	Persistent,
+} from "../shared/types";
+import {
+	persistentActions,
+	wait,
+	waitForEvent,
+	withTimeout,
+} from "../shared/utils";
+import logger from "../shared/logger";
+import { createClient } from "minecraft-protocol";
+import { ChatMessage } from "prismarine-chat";
+import BotConfig from "../shared/bot-config";
+import Bazaar from "./bazaar";
+import { PROMISE_TIMEOUT, globals } from "../shared/globals";
+import { Vec3 } from "vec3";
+import { findItemSlot } from "./bot-utils";
 
 export default class BotManager {
-	onlineStatus: OnlineStatus = 'offline';
-	location: Location = 'lobby';
+	onlineStatus: OnlineStatus = "offline";
+	location: Location = "lobby";
 
 	config: BotConfig;
 	bot: Bot & Persistent<Bot>;
@@ -24,29 +36,34 @@ export default class BotManager {
 
 	shouldReconnect = false;
 	spawnDelay = true;
+	banned = false;
 
 	constructor(public account: Account) {
 		this.config = new BotConfig(account.config);
-		const {apply} = persistentActions();
+		const { apply } = persistentActions();
 		this.applyPersistentActions = apply;
 
 		const bot = createBot({
 			client: createClient({
-				username: 'dummy',
+				username: "dummy",
 				connect: () => null,
 				closeTimeout: 2_147_483_647,
-				version: '1.8.9',
+				version: "1.8.9",
 			}),
 		});
 		this.bot = apply(bot);
 		this.bot.on(
-			'spawn',
+			"spawn",
 			async () => {
 				logger.debug(`Spawned in as ${this.bot.username}!`);
 				this.account.username = this.bot.username;
 
-				this.postNotification('Spawned in!', `Spawned in as ${this.bot.username}`, 1);
-				this.onlineStatus = 'online';
+				this.postNotification(
+					"Spawned in!",
+					`Spawned in as ${this.bot.username}`,
+					1
+				);
+				this.onlineStatus = "online";
 				this.postUpdate();
 
 				this.spawnDelay = true;
@@ -55,59 +72,76 @@ export default class BotManager {
 
 				await this.updateLocation();
 			},
-			{persistent: true}
+			{ persistent: true }
 		);
 		this.bot.on(
-			'message',
+			"message",
 			async (message: ChatMessage, position: string) => {
 				if (!message) return;
-				if (position !== 'chat') return;
+				if (position !== "chat") return;
 
 				logger.debug(`[CHAT] ${message.toString()}`);
 				this.postChatLog(message);
 
 				const str = message.toString().trimStart();
-				if (str.startsWith('[Important] This server will restart soon')) {
-					await this.sendChat('/evacuate');
-				} else if (str.startsWith('You need the Cookie Buff to use this feature!')) {
+				if (str.startsWith("[Important] This server will restart soon")) {
+					await this.sendChat("/evacuate");
+				} else if (
+					str.startsWith("You need the Cookie Buff to use this feature!")
+				) {
 					logger.debug(`Detected no cookie buff for ${this.account.username}`);
 					this.hasCookie = false;
-				}
-				else if (str.startsWith('Please dont\'t spam the command')) {
+				} else if (str.startsWith("Please dont't spam the command")) {
 					this.lastMessageTime = Date.now() + 5000;
 				}
 			},
-			{persistent: true}
+			{ persistent: true }
 		);
 		this.bot.on(
-			'error',
+			"error",
 			(err: Error) => {
 				logger.error(`Error from ${this.account.username}: ${err}`);
 			},
-			{persistent: true}
+			{ persistent: true }
 		);
 		this.bot.on(
-			'kicked',
+			"kicked",
 			(reason?: string) => {
 				logger.debug(`Kicked: ${reason}`);
-				this.onlineStatus = 'offline';
+				this.onlineStatus = "offline";
 				this.postUpdate();
-				this.postNotification('Kicked', `Kicked, reason: ${reason ?? 'No reason provided'}`, 3);
+				this.postNotification(
+					"Kicked",
+					`Kicked, reason: ${reason ?? "No reason provided"}`,
+					3
+				);
+				if (JSON.stringify(reason).includes("banned")) {
+					this.postNotification(
+						"BANNED",
+						`Reason: ${reason ?? "No reason provided"}`,
+						3
+					);
+					this.banned = true;
+					this.postUpdate();
+					this.disconnect();
+				}
 			},
-			{persistent: true}
+			{ persistent: true }
 		);
 		this.bot.on(
-			'end',
+			"end",
 			(reason: string) => {
 				this.spawnDelay = true;
-				this.location = 'lobby'
-				logger.debug(`Connection ended: ${reason || 'No reason'}`);
-				this.onlineStatus = 'offline';
+				this.location = "lobby";
+				logger.debug(`Connection ended: ${reason || "No reason"}`);
+				this.onlineStatus = "offline";
 				this.postUpdate();
 
 				this.postNotification(
-					'Connection ended',
-					`Connection ended to hypixel.net, reason: ${reason ?? 'No reason provided'}`,
+					"Connection ended",
+					`Connection ended to hypixel.net, reason: ${
+						reason ?? "No reason provided"
+					}`,
 					1
 				);
 
@@ -117,18 +151,18 @@ export default class BotManager {
 
 					setTimeout(() => {
 						if (!this.shouldReconnect) return;
-						if (this.onlineStatus !== 'offline') return;
+						if (this.onlineStatus !== "offline") return;
 
-						logger.debug('Reconnecting...');
+						logger.debug("Reconnecting...");
 						this.connect();
 					}, delay);
 				}
 			},
-			{persistent: true}
+			{ persistent: true }
 		);
 
 		this.bazaar = new Bazaar(this);
-		const events = ['beforeExit', 'SIGHUP', 'SIGINT', 'SIGTERM'];
+		const events = ["beforeExit", "SIGHUP", "SIGINT", "SIGTERM"];
 		events.forEach((event) => {
 			process.on(event, async () => {
 				withTimeout(this.bazaar.saveLimit(), 5000)
@@ -140,7 +174,10 @@ export default class BotManager {
 		});
 	}
 
-	postEvent<Event extends ChildEvents>(event: Event, data: ChildToMain<Event>['data']) {
+	postEvent<Event extends ChildEvents>(
+		event: Event,
+		data: ChildToMain<Event>["data"]
+	) {
 		// logger.debug(`Posting event ${event}`);
 		const id = Date.now();
 		const message: ChildToMain<Event> = {
@@ -153,7 +190,10 @@ export default class BotManager {
 		return id;
 	}
 
-	async waitForReply<R, Event extends ChildEvents>(event: Event, data: ChildToMain<Event>['data']): Promise<R> {
+	async waitForReply<R, Event extends ChildEvents>(
+		event: Event,
+		data: ChildToMain<Event>["data"]
+	): Promise<R> {
 		try {
 			return await withTimeout(
 				new Promise((resolve, reject) => {
@@ -161,21 +201,21 @@ export default class BotManager {
 						const id = this.postEvent(event, data);
 						const listener = (message: unknown) => {
 							if (!message) return;
-							if (typeof message !== 'object') return;
-							if (!('event' in message) || message.event !== event) return;
-							if (!('id' in message) || message.id !== id) return;
-							if (!('data' in message)) return;
-	
-							process.off('message', listener);
+							if (typeof message !== "object") return;
+							if (!("event" in message) || message.event !== event) return;
+							if (!("id" in message) || message.id !== id) return;
+							if (!("data" in message)) return;
+
+							process.off("message", listener);
 							resolve(message.data as R);
 						};
-						process.on('message', listener);
-					} else reject(new Error('Process is not defined'));
-				})
-			)
-		}
-		catch(err) {
-			throw new Error(`Failed to get reply from parent process: ${err}`)
+						process.on("message", listener);
+					} else reject(new Error("Process is not defined"));
+				}),
+				20_000
+			);
+		} catch (err) {
+			throw new Error(`Failed to get reply from parent process: ${err}`);
 		}
 	}
 
@@ -184,46 +224,53 @@ export default class BotManager {
 			email: this.account.email,
 			uuid: this.account.uuid,
 			username: this.account.username,
-			configPath: this.account.config,
+			config: this.account.config,
 			onlineStatus: this.onlineStatus,
 			location: this.location,
 			hasCookie: this.hasCookie,
+			banned: this.banned,
 		};
 	}
 
 	postUpdate() {
-		this.postEvent('manager-update', this.serialize());
+		this.postEvent("manager-update", this.serialize());
 	}
 
 	postNotification(title: string, message: string, level: 1 | 2 | 3) {
-		this.postEvent('notification', {title, message, level});
+		this.postEvent("notification", { title, message, level });
 	}
 
 	postChatLog(message: ChatMessage) {
-		this.postEvent('chat', {
+		this.postEvent("chat", {
 			message: message.toAnsi(),
 		});
 	}
 
 	getPurse(): number {
 		const sidebarItems =
-			this.bot.scoreboard?.sidebar?.items?.map((item) => item.displayName.toString().replace(item.name, '')) ?? [];
+			this.bot.scoreboard?.sidebar?.items?.map((item) =>
+				item.displayName.toString().replace(item.name, "")
+			) ?? [];
 
 		for (const item of sidebarItems) {
 			const match = /(Purse|Piggy): ([\d,\\.]+)/.exec(item);
 			if (!match) continue;
 
-			return Number(match[2].replaceAll(',', ''));
+			return Number(match[2].replaceAll(",", ""));
 		}
 
-		logger.debug(`Purse not found: ${sidebarItems.join(', ')}`);
+		logger.debug(`Purse not found: ${sidebarItems.join(", ")}`);
 		return 0;
 	}
 
 	getEmptyInventorySpace(): number {
-		const {bot} = this;
+		const { bot } = this;
 		let count = 0;
-		for (let i = bot.inventory.inventoryStart; i < bot.inventory.inventoryEnd; ++i) {
+		for (
+			let i = bot.inventory.inventoryStart;
+			i < bot.inventory.inventoryEnd;
+			++i
+		) {
 			const slot = bot.inventory.slots[i];
 			if (!slot) count++;
 		}
@@ -234,65 +281,81 @@ export default class BotManager {
 		return this.getEmptyInventorySpace() === 0;
 	}
 	isInventoryEmpty(): boolean {
-		const {bot} = this;
-		for (let i = bot.inventory.inventoryStart; i < bot.inventory.inventoryEnd; ++i) {
+		const { bot } = this;
+		for (
+			let i = bot.inventory.inventoryStart;
+			i < bot.inventory.inventoryEnd;
+			++i
+		) {
 			const slot = bot.inventory.slots[i];
-			if (slot && slot.customName !== '§aSkyBlock Menu §7(Click)') return false;
+			if (slot && slot.customName !== "§aSkyBlock Menu §7(Click)") return false;
 		}
-		this.waitForBotEvent('whisper').then();
+		this.waitForBotEvent("whisper").then();
 		return true;
 	}
-	waitForBotEvent<Event extends keyof BotEvents>(eventName: Event, timeout?: number) {
+	waitForBotEvent<Event extends keyof BotEvents>(
+		eventName: Event,
+		timeout?: number
+	) {
 		return waitForEvent(this.bot, eventName, timeout);
 	}
-	disconnect() {
-		logger.debug('Disconnecting');
+	async disconnect() {
+		logger.debug("Disconnecting");
 		this.shouldReconnect = false;
-		if (this.onlineStatus !== 'offline') this.bot.quit();
+		if (this.onlineStatus !== "offline") {
+			this.bot.quit();
+			await this.waitForBotEvent("end");
+		}
 	}
 
 	async connect() {
-		const host = 'hypixel.net';
+		const host = "hypixel.net";
 
-		logger.debug('Connecting...');
+		logger.debug("Connecting...");
 
 		this.shouldReconnect = true;
-		if (this.onlineStatus !== 'offline') return;
-		this.postNotification('Connecting', `Connecting to ${host}`, 1);
+		if (this.onlineStatus !== "offline") return;
+		this.postNotification("Connecting", `Connecting to ${host}`, 1);
 
 		try {
-			this.onlineStatus = 'connecting';
+			this.onlineStatus = "connecting";
 			this.postUpdate();
 
 			const bot = createBot({
 				host,
 				port: 25565,
-				username: this.account.email ?? 'unknown',
-				version: '1.8.9',
-				auth: 'microsoft',
-				profilesFolder: globals.ACCOUNT_CACHE_DIR(this.account.email ?? 'unknown'),
+				username: this.account.email ?? "unknown",
+				version: "1.8.9",
+				auth: "microsoft",
+				profilesFolder: globals.ACCOUNT_CACHE_DIR(
+					this.account.email ?? "unknown"
+				),
 				onMsaCode: (res) => {
 					logger.debug(JSON.stringify(res));
 					logger.info(
-						`First time sign in: ${res.message}. Please make sure to sign in using the correct email${
-							this.account.email ? ` (${this.account.email})` : ''
+						`First time sign in: ${
+							res.message
+						}. Please make sure to sign in using the correct email${
+							this.account.email ? ` (${this.account.email})` : ""
 						}`
 					);
 					this.postNotification(
-						'First time sign in',
-						`${res.message}. Please make sure to sign in using the correct email${
-							this.account.email ? ` (${this.account.email})` : ''
+						"First time sign in",
+						`${
+							res.message
+						}. Please make sure to sign in using the correct email${
+							this.account.email ? ` (${this.account.email})` : ""
 						}`,
 						3
 					);
 				},
 			});
-			logger.debug('Applying persistent actions to bot');
+			logger.debug("Applying persistent actions to bot");
 			this.bot = this.applyPersistentActions(bot);
 
-			await this.waitForBotEvent('login', 30_000);
+			await this.waitForBotEvent("login", 30_000);
 		} catch (err) {
-			this.onlineStatus = 'offline';
+			this.onlineStatus = "offline";
 			logger.error(`Error logging in with ${this.account.username}: ${err}`);
 			setTimeout(() => this.shouldReconnect && this.connect(), 10000);
 		}
@@ -301,20 +364,24 @@ export default class BotManager {
 	async updateLocation(): Promise<void> {
 		const MAX_FAILS = 5;
 		for (let i = 0; i < MAX_FAILS; i++) {
-			if (this.onlineStatus !== 'online') return;
+			if (this.onlineStatus !== "online") return;
 			try {
-				await this.sendChat('/locraw');
+				await this.sendChat("/locraw");
 				const [message] = await this.waitForMessage(
-					[/Please don't spam the command!/, /You are sending too many commands!/, /{"server":/],
+					[
+						/Please don't spam the command!/,
+						/You are sending too many commands!/,
+						/{"server":/,
+					],
 					2000
 				);
 				if (!message.startsWith('{"server":')) continue;
 				const locraw = JSON.parse(message);
-				if (locraw.server === 'limbo') this.location = 'limbo';
-				else if (locraw.gametype !== 'SKYBLOCK') this.location = 'lobby';
-				else if (locraw.map === 'Private Island') this.location = 'island';
-				else if (locraw.map === 'Hub') this.location = 'hub';
-				else this.location = 'skyblock';
+				if (locraw.server === "limbo") this.location = "limbo";
+				else if (locraw.gametype !== "SKYBLOCK") this.location = "lobby";
+				else if (locraw.map === "Private Island") this.location = "island";
+				else if (locraw.map === "Hub") this.location = "hub";
+				else this.location = "skyblock";
 				logger.debug(`Detected location: ${this.location}`);
 				this.postUpdate();
 				return;
@@ -322,9 +389,12 @@ export default class BotManager {
 				logger.error(`Error while trying to update location: ${err}`);
 			}
 		}
-		if (this.onlineStatus === 'online') {
-			logger.error(`Failed to update location after ${MAX_FAILS} attempts, reconnecting`);
-			this.disconnect();
+		if (this.onlineStatus === "online") {
+			logger.error(
+				`Failed to update location after ${MAX_FAILS} attempts, reconnecting`
+			);
+			await this.disconnect();
+			await wait(10_000);
 			await this.connect();
 		}
 	}
@@ -350,18 +420,21 @@ export default class BotManager {
 
 	async writeToSign(data: string) {
 		try {
-
 			const bot = this.bot;
-			logger.debug('Waiting for sign to open');
-			const packet = await waitForEvent(bot._client, 'open_sign_entity');
+			logger.debug("Waiting for sign to open");
+			const packet = await waitForEvent(bot._client, "open_sign_entity");
 			await wait(250);
-			const {x, y, z} = packet[0].location;
-			logger.debug(`Writing '${data}' ('${data.substring(0, 15)}') to sign at x${x} y${y} z${z}`);
+			const { x, y, z } = packet[0].location;
+			logger.debug(
+				`Writing '${data}' ('${data.substring(
+					0,
+					15
+				)}') to sign at x${x} y${y} z${z}`
+			);
 			const block = bot.blockAt(new Vec3(x, y, z));
-			if (!block) throw new Error('block not found');
+			if (!block) throw new Error("block not found");
 			bot.updateSign(block, data.substring(0, 15));
-		}
-		catch(err) {
+		} catch (err) {
 			throw new Error(`Failed to write to sign: ${err}`);
 		}
 	}
@@ -372,13 +445,19 @@ export default class BotManager {
 		this.lastClickTime = Date.now();
 
 		const bot = this.bot;
-		logger.debug(`Clicking slot ${slot}: ${bot.currentWindow && bot.currentWindow.containerItems()[slot]?.customName}`);
-		if (!bot.currentWindow) throw new Error('Failed to click: no current window');
+		logger.debug(
+			`Clicking slot ${slot}: ${
+				bot.currentWindow &&
+				bot.currentWindow.containerItems()[slot]?.customName
+			}`
+		);
+		if (!bot.currentWindow)
+			throw new Error("Failed to click: no current window");
 
 		bot.currentWindow.requiresConfirmation = false;
 		bot.clickWindow(slot, mouseButton ?? 0, 0);
 
-		if (!promise) promise = this.waitForBotEvent('windowOpen') as Promise<T>;
+		if (!promise) promise = this.waitForBotEvent("windowOpen") as Promise<T>;
 		const value = await promise;
 
 		return value;
@@ -414,11 +493,15 @@ export default class BotManager {
 		});
 	}
 
-	async waitForMessage(regexps: RegExp[], timeout?: number, skipPlayerMessages = true) {
+	async waitForMessage(
+		regexps: RegExp[],
+		timeout?: number,
+		skipPlayerMessages = true
+	) {
 		return this.addListenerWithTimeout(
-			'messagestr',
+			"messagestr",
 			(message, position) => {
-				if (position !== 'chat') return false;
+				if (position !== "chat") return false;
 				const playerPattern = /^.* ([a-zA-Z0-9_]+): .+$/;
 				if (skipPlayerMessages && playerPattern.test(message)) return false;
 

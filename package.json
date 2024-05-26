@@ -3,8 +3,8 @@
   "author": "Frying Gorilla",
   "license": "ISC",
   "description": "",
-  "botVersion": "0.0.3",
-  "mainVersion": "0.0.3",
+  "botVersion": "0.0.4",
+  "mainVersion": "0.0.4",
   "private": true,
   "scripts": {
     "dev": "ts-node-dev --cls --respawn --transpile-only --exit-child --watch src -- src/main/index.ts --nq",

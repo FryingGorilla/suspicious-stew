@@ -1,8 +1,8 @@
-import {rm} from 'fs/promises';
-import {jsonc} from 'jsonc';
-import logger from './logger';
-import {existsSync} from 'fs';
-import {globals} from './globals';
+import { rm } from "fs/promises";
+import { jsonc } from "jsonc";
+import logger from "./logger";
+import { existsSync } from "fs";
+import { globals } from "./globals";
 
 type Options = {
 	filter: {
@@ -26,17 +26,17 @@ type Options = {
 	};
 	general: {
 		maxUsage: number;
-		timeouts: {start: number; end: number}[];
+		timeouts: { start: number; end: number }[];
 		coopFailsafe: boolean;
 		autoCookie: boolean;
 	};
 };
 export default class BotConfig {
-	name = 'default';
+	name = "default";
 	options: Options = {
 		filter: {
 			whitelist: [],
-			blacklist: ['ESSENCE_[a-zA-Z]+'],
+			blacklist: ["ESSENCE_[a-zA-Z]+"],
 			maxDiffDay: 15 / 100,
 			minPrice: 10000,
 			maxPrice: 20_000_000,
@@ -64,12 +64,14 @@ export default class BotConfig {
 	constructor(public filepath: string = globals.DEFAULT_CONFIG_FILE) {}
 
 	serialize() {
-		return {name: this.name, filepath: this.filepath, options: this.options};
+		return { name: this.name, filepath: this.filepath, options: this.options };
 	}
 
 	async save() {
+		logger.debug("Saving config...");
+
 		try {
-			await jsonc.write(this.filepath, this.serialize(), {space: '\t'});
+			await jsonc.write(this.filepath, this.serialize(), { space: "\t" });
 			return this;
 		} catch (err) {
 			throw new Error(`Error saving config ${this.filepath}: ${err}`);
@@ -77,8 +79,12 @@ export default class BotConfig {
 	}
 
 	async delete() {
+		logger.debug("Deleting config...");
+
 		if (!existsSync(this.filepath)) {
-			logger.debug(`Config file '${this.filepath}' is not present, failed to delete`);
+			logger.debug(
+				`Config file '${this.filepath}' is not present, failed to delete`
+			);
 			return null;
 		}
 		try {
@@ -90,12 +96,25 @@ export default class BotConfig {
 	}
 
 	loadFromObject(o: unknown): BotConfig {
-		if (typeof o !== 'object' || o == null) throw new Error(`Invalid config: config is not an object`);
-		if (!('name' in o) || typeof o.name !== 'string') {
-			throw new Error(`Invalid config ${jsonc.stringify(o, {space: 4})}: config does not contain a name`);
+		if (typeof o !== "object" || o == null)
+			throw new Error(`Invalid config: config is not an object`);
+		if (!("name" in o) || typeof o.name !== "string") {
+			throw new Error(
+				`Invalid config ${jsonc.stringify(o, {
+					space: 4,
+				})}: config does not contain a name`
+			);
 		}
-		if (!('options' in o) || typeof o.options !== 'object' || o.options == null) {
-			throw new Error(`Invalid config ${jsonc.stringify(o, {space: 4})}: config does not contain options`);
+		if (
+			!("options" in o) ||
+			typeof o.options !== "object" ||
+			o.options == null
+		) {
+			throw new Error(
+				`Invalid config ${jsonc.stringify(o, {
+					space: 4,
+				})}: config does not contain options`
+			);
 		}
 
 		this.name = o.name;
@@ -117,7 +136,9 @@ export default class BotConfig {
 			}
 			return this;
 		} catch (err) {
-			throw new Error(`Failed to load config from ${jsonc.stringify(o, {space: 4})}: ${err}`);
+			throw new Error(
+				`Failed to load config from ${jsonc.stringify(o, { space: 4 })}: ${err}`
+			);
 		}
 	}
 
@@ -129,13 +150,17 @@ export default class BotConfig {
 		if (value == null) return false;
 		const optionValue = this.options[category][option];
 		if (Array.isArray(optionValue)) return Array.isArray(value);
-		if (typeof optionValue === 'number' && typeof value === 'number') return true;
-		if (typeof optionValue === 'string' && typeof value === 'string') return true;
-		if (typeof optionValue === 'boolean' && typeof value === 'boolean') return true;
+		if (typeof optionValue === "number" && typeof value === "number")
+			return true;
+		if (typeof optionValue === "string" && typeof value === "string")
+			return true;
+		if (typeof optionValue === "boolean" && typeof value === "boolean")
+			return true;
 		return false;
 	}
 
 	async load() {
+		logger.debug("Loading config...");
 		if (!existsSync(this.filepath)) {
 			logger.debug(`Config file '${this.filepath}' is not present, can't load`);
 			return null;

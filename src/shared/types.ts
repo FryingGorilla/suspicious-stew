@@ -1,7 +1,7 @@
 export type HypixelProduct<T extends string> = {
 	product_id: T;
-	sell_summary: {amount: number; pricePerUnit: number; orders: number}[];
-	buy_summary: {amount: number; pricePerUnit: number; orders: number}[];
+	sell_summary: { amount: number; pricePerUnit: number; orders: number }[];
+	buy_summary: { amount: number; pricePerUnit: number; orders: number }[];
 	quick_status: {
 		productId: T;
 		sellPrice: number;
@@ -43,7 +43,7 @@ export type Product = {
 };
 
 export type Order = {
-	type: 'buy' | 'sell';
+	type: "buy" | "sell";
 	amount?: number;
 	price?: number;
 	productId: string;
@@ -53,13 +53,18 @@ export type Order = {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type GenericFunction = (...args: any[]) => any;
-export type Persistent<T extends object> = AddParameter<T, [persistence?: {persistent: boolean}]>;
+export type Persistent<T extends object> = AddParameter<
+	T,
+	[persistence?: { persistent: boolean }]
+>;
 export type AddParameter<T, P extends unknown[]> = {
-	[K in keyof T]: T[K] extends (...args: infer A) => infer R ? (...args: [...A, ...P]) => R : T[K];
+	[K in keyof T]: T[K] extends (...args: infer A) => infer R
+		? (...args: [...A, ...P]) => R
+		: T[K];
 };
 
 export type BazaarApiArgs = {
-	filter: BotConfigOptions['filter'];
+	filter: BotConfigOptions["filter"];
 	budget: number;
 	orderCount: number;
 	remainingDailyLimit: number;
@@ -71,14 +76,14 @@ export type BazaarApiArgs = {
 };
 
 export type ChildEvents =
-	| 'get-products'
-	| 'bazaar-update'
-	| 'flipper-metrics'
-	| 'flipper-update'
-	| 'manager-update'
-	| 'notification'
-	| 'chat'
-	| 'solve';
+	| "get-products"
+	| "bazaar-update"
+	| "flipper-metrics"
+	| "flipper-update"
+	| "manager-update"
+	| "notification"
+	| "chat"
+	| "solve";
 export type ChildData = {
 	notification: {
 		level: number;
@@ -89,16 +94,16 @@ export type ChildData = {
 		message: string;
 	};
 	solve: BazaarApiArgs;
-	'get-products': null;
-	'manager-update': ManagerUpdateData;
-	'bazaar-update': BazaarUpdateData;
-	'flipper-update': FlipperUpdateData;
-	'flipper-metrics': ManagerUpdateData & FlipperUpdateData & BazaarUpdateData;
+	"get-products": null;
+	"manager-update": ManagerUpdateData;
+	"bazaar-update": BazaarUpdateData;
+	"flipper-update": FlipperUpdateData;
+	"flipper-metrics": ManagerUpdateData & FlipperUpdateData & BazaarUpdateData;
 };
 
-export type FlipperState = 'running' | 'stopped' | 'paused';
-export type OnlineStatus = 'online' | 'offline' | 'connecting';
-export type Location = 'limbo' | 'lobby' | 'hub' | 'island' | 'skyblock';
+export type FlipperState = "running" | "stopped" | "paused";
+export type OnlineStatus = "online" | "offline" | "connecting";
+export type Location = "limbo" | "lobby" | "hub" | "island" | "skyblock";
 
 export type FlipperUpdateData = {
 	readonly isInTimeout: boolean;
@@ -112,7 +117,7 @@ export type FlipperUpdateData = {
 	readonly cookieBuffTime: number;
 
 	readonly startingTotal?: number;
-	readonly startingDailyLimit?: number;
+	readonly startingUsedDailyLimit?: number;
 
 	readonly profit?: number;
 };
@@ -121,11 +126,12 @@ export type ManagerUpdateData = {
 	readonly email?: string;
 	readonly uuid: string;
 	readonly username?: string;
-	readonly configPath?: string;
+	readonly config?: string;
 
 	readonly hasCookie: boolean;
 	readonly onlineStatus: OnlineStatus;
 	readonly location: Location;
+	readonly banned: boolean;
 };
 
 export type BazaarUpdateData = {
@@ -178,7 +184,7 @@ export type BotConfigOptions = {
 	};
 	general: {
 		maxUsage: number;
-		schedule: {start: number; end: number}[];
+		schedule: { start: number; end: number }[];
 	};
 	failsafe: {
 		coopFailsafe: boolean;
