@@ -27,23 +27,12 @@ export async function checkForUpdates() {
 			detached: true,
 			stdio: "inherit",
 		});
+		process.unref();
 		await shutdown();
 	}
-}
-
-async function downloadBotBinary(forceDownload?: boolean) {
 	botBinaryPath = (
-		await downloadLatest(
-			new RegExp(`^bot-\\d+.\\d+.\\d+-${getSuffix()}$`),
-			forceDownload
-		)
+		await downloadLatest(new RegExp(`^bot-\\d+.\\d+.\\d+-${getSuffix()}$`))
 	).path;
-}
-
-async function downloadMain() {
-	return await downloadLatest(
-		new RegExp(`^suspicious-stew-\\d+.\\d+.\\d+-${getSuffix()}$`)
-	);
 }
 
 function calculateSHA256(filePath: string) {
