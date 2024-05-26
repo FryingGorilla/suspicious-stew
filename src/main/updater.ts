@@ -104,16 +104,14 @@ const downloadLatest = async (
 ): Promise<{ path: string; existing: boolean }> => {
 	logger.debug("Finding latest asset matching " + nameRegex);
 
-	let asset, sumAsset;
+	let asset: Asset | undefined, sumAsset: Asset | undefined;
 	try {
 		const { data } = await axios<{ assets: Asset[] }>({
 			url: RELEASES_URL,
 			responseType: "json",
 		});
-		asset = data?.assets?.find((a: { name: string }) => nameRegex.test(a.name));
-		sumAsset = data?.assets.find(
-			({ name }: { name: string }) => name === "sha256sum.txt"
-		);
+		asset = data?.assets?.find((a) => nameRegex.test(a.name));
+		sumAsset = data?.assets.find(({ name }) => name === "sha256sum.txt");
 	} catch (err) {
 		throw new Error(`Failed to get latest release: ${err}`);
 	}
