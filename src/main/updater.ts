@@ -8,6 +8,7 @@ import { execSync, spawn } from "child_process";
 import crypto from "crypto";
 import { execArgv } from "process";
 import { shutdown } from ".";
+import { Stream } from "stream";
 
 export const getBotBinaryPath = () => botBinaryPath;
 let botBinaryPath = "";
@@ -84,6 +85,19 @@ const downloadExecutable = async (
 	}
 };
 
+function streamToString(stream: Stream) {
+	const chunks: Buffer[] = [];
+	return new Promise<string>((resolve, reject) => {
+		stream.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
+		stream.on("error", (err) => reject(err));
+		stream.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
+	});
+}
+
+type Asset = {
+	name: string;
+	browser_download_url: string;
+};
 const downloadLatest = async (
 	nameRegex: RegExp,
 	forceDownload?: boolean
@@ -92,7 +106,10 @@ const downloadLatest = async (
 
 	let asset, sumAsset;
 	try {
-		const { data } = await axios({ url: RELEASES_URL, responseType: "json" });
+		const { data } = await axios<{ assets: Asset[] }>({
+			url: RELEASES_URL,
+			responseType: "json",
+		});
 		asset = data?.assets?.find((a: { name: string }) => nameRegex.test(a.name));
 		sumAsset = data?.assets.find(
 			({ name }: { name: string }) => name === "sha256sum.txt"
@@ -102,7 +119,16 @@ const downloadLatest = async (
 	}
 	if (!asset) throw new Error(`No matching asset found for ${nameRegex}`);
 	if (!sumAsset) throw new Error(`No matching asset found for sha256sum.txt`);
-	const sha256sum = JSON.parse(sumAsset);
+	const sha256sum = JSON.parse(
+		await streamToString(
+			(
+				await axios<Stream>({
+					url: sumAsset.browser_download_url,
+					responseType: "stream",
+				})
+			).data
+		)
+	);
 	if (!(asset.name in sha256sum))
 		throw new Error(`No sha256 sum found for ${asset.name}`);
 
