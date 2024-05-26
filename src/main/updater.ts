@@ -1,9 +1,8 @@
 import axios from "axios";
 import path from "path";
 import fs from "fs";
-import { BIN_DIR, RELEASES_URL, globals } from "../shared/globals";
+import { BIN_DIR, IS_IN_DEV, RELEASES_URL, globals } from "../shared/globals";
 import logger from "../shared/logger";
-import EventEmitter from "events";
 import { execSync, spawn } from "child_process";
 import crypto from "crypto";
 import { execArgv } from "process";
@@ -20,16 +19,18 @@ const getSuffix = () => {
 
 export async function checkForUpdates() {
 	const { path: mainPath, existing } = await downloadLatest(
-		new RegExp(`^suspicious-stew-\\d+.\\d+.\\d+-${getSuffix()}$`)
+		new RegExp(`^suspicious-stew-\\d+.\\d+.\\d+-${getSuffix()}$`),
+		false,
+		IS_IN_DEV ? BIN_DIR : path.parse(process.execPath).dir
 	);
 	if (!existing) {
 		logger.info("Starting newer version...");
-		const process = spawn(mainPath, execArgv, {
+		const p = spawn(mainPath, execArgv, {
 			detached: true,
 			stdio: "inherit",
 		});
-		process.unref();
-		fs.rmSync(__filename);
+		p.unref();
+		if (!IS_IN_DEV) fs.rmSync(process.execPath);
 		await shutdown();
 	}
 	botBinaryPath = (
@@ -53,14 +54,15 @@ const downloads: Record<string, { download: Promise<string>; url: string }> =
 const downloadExecutable = async (
 	url: string,
 	filePath: string,
-	sha256: string
+	sha256: string,
+	directory: string
 ) => {
 	logger.info(`Downloading ${filePath} from ${url}`);
 	let writer: fs.WriteStream | undefined = undefined;
 	try {
 		const response = await axios({ url, responseType: "stream" });
-		const fullPath = path.join(BIN_DIR, filePath);
-		await fs.promises.mkdir(BIN_DIR, { recursive: true });
+		const fullPath = path.join(directory, filePath);
+		await fs.promises.mkdir(directory, { recursive: true });
 
 		writer = fs.createWriteStream(fullPath);
 		response.data.pipe(writer);
@@ -75,7 +77,7 @@ const downloadExecutable = async (
 		logger.info("Download finished");
 		if ((await calculateSHA256(filePath)) !== sha256) {
 			logger.error("Download got corrupted, redownloading...");
-			await downloadExecutable(url, filePath, sha256);
+			await downloadExecutable(url, filePath, sha256, directory);
 		}
 		return fullPath;
 	} catch (err) {
@@ -100,7 +102,8 @@ type Asset = {
 };
 const downloadLatest = async (
 	nameRegex: RegExp,
-	forceDownload?: boolean
+	forceDownload?: boolean,
+	directory = BIN_DIR
 ): Promise<{ path: string; existing: boolean }> => {
 	logger.debug("Finding latest asset matching " + nameRegex);
 
@@ -130,9 +133,8 @@ const downloadLatest = async (
 	if (!(asset.name in sha256sum))
 		throw new Error(`No sha256 sum found for ${asset.name}`);
 
-	await fs.promises.mkdir(BIN_DIR, { recursive: true });
 	if (!forceDownload) {
-		const files = await fs.promises.readdir(BIN_DIR, {
+		const files = await fs.promises.readdir(directory, {
 			withFileTypes: true,
 		});
 		const current = files
@@ -140,7 +142,7 @@ const downloadLatest = async (
 			.find((f) => f.name === asset?.name);
 		if (current?.name) {
 			try {
-				const currentPath = path.join(BIN_DIR, current.name);
+				const currentPath = path.join(directory, current.name);
 				if ((await calculateSHA256(currentPath)) === sha256sum[asset.name])
 					return { path: currentPath, existing: true };
 			} catch (err) {
@@ -161,7 +163,7 @@ const downloadLatest = async (
 			) {
 				logger.info("We are in the future!");
 				return {
-					path: path.join(BIN_DIR, possibleDev.file.name),
+					path: path.join(directory, possibleDev.file.name),
 					existing: true,
 				};
 			}
@@ -171,7 +173,8 @@ const downloadLatest = async (
 		path: await downloadExecutable(
 			asset.browser_download_url,
 			asset.name,
-			sha256sum[asset.name]
+			sha256sum[asset.name],
+			directory
 		),
 		existing: false,
 	};
