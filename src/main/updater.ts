@@ -137,7 +137,7 @@ const downloadLatest = async (
 		});
 		const current = files
 			.filter((dirent) => dirent.isFile())
-			.find((f) => f.name === asset.name);
+			.find((f) => f.name === asset?.name);
 		if (current?.name) {
 			try {
 				const currentPath = path.join(BIN_DIR, current.name);
