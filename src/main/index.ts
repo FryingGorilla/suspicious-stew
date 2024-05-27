@@ -1,5 +1,5 @@
 import logger from "../shared/logger";
-import { globals } from "../shared/globals";
+import { createFolders, globals } from "../shared/globals";
 import Config from "./main-config";
 import axios from "axios";
 import ngrok, { Ngrok } from "ngrok";
@@ -61,6 +61,7 @@ events.forEach((event) => {
 
 async function main() {
 	if (globals.IS_IN_DEV) logger.info("Running in development mode");
+	createFolders();
 	await checkForUpdates();
 
 	await config.prompt();

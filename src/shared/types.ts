@@ -125,8 +125,8 @@ export type FlipperUpdateData = {
 export type ManagerUpdateData = {
 	readonly email?: string;
 	readonly uuid: string;
+	readonly config: string;
 	readonly username?: string;
-	readonly config?: string;
 
 	readonly hasCookie: boolean;
 	readonly onlineStatus: OnlineStatus;

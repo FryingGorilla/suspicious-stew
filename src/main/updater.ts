@@ -75,6 +75,7 @@ const downloadExecutable = async (
 			execSync(`chmod +x ${fullPath}`);
 		}
 		logger.info("Download finished");
+		writer.close();
 		if ((await calculateSHA256(filePath)) !== sha256) {
 			logger.error("Download got corrupted, redownloading...");
 			await downloadExecutable(url, filePath, sha256, directory);
@@ -156,9 +157,10 @@ const downloadLatest = async (
 					if (!b.ver) return -1;
 
 					return b.ver - a.ver;
-				})[0];
+				})
+				.at(0);
 			if (
-				possibleDev.ver &&
+				possibleDev?.ver &&
 				possibleDev.ver > Number(asset.name.replaceAll(/[^\d]/g, ""))
 			) {
 				logger.info("We are in the future!");

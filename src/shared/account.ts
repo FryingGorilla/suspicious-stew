@@ -1,12 +1,12 @@
-import logger from './logger';
-import {globals} from './globals';
-import {Authflow, Titles, ServerDeviceCodeResponse} from 'prismarine-auth';
-import {jsonc} from 'jsonc';
+import logger from "./logger";
+import { DEFAULT_CONFIG_FILE, globals } from "./globals";
+import { Authflow, Titles, ServerDeviceCodeResponse } from "prismarine-auth";
+import { jsonc } from "jsonc";
 
 export default class Account {
 	email?: string;
 	username?: string;
-	config?: string;
+	config = DEFAULT_CONFIG_FILE;
 
 	static async createAccount(
 		email: string,
@@ -19,12 +19,14 @@ export default class Account {
 				globals.ACCOUNT_CACHE_DIR(email),
 				{
 					authTitle: Titles.MinecraftNintendoSwitch,
-					deviceType: 'Nintendo',
-					flow: 'live',
+					deviceType: "Nintendo",
+					flow: "live",
 				},
 				codeCallback
 			);
-			const {profile} = await authFlow.getMinecraftJavaToken({fetchProfile: true});
+			const { profile } = await authFlow.getMinecraftJavaToken({
+				fetchProfile: true,
+			});
 			if (!profile) throw new Error(`Logging in timed out for ${email}`);
 
 			const data = {
@@ -33,7 +35,9 @@ export default class Account {
 				config,
 				uuid: profile.id,
 			};
-			await jsonc.write(globals.ACCOUNT_FILE(profile.id), data, {space: '\t'});
+			await jsonc.write(globals.ACCOUNT_FILE(profile.id), data, {
+				space: "\t",
+			});
 
 			return profile.id;
 		} catch (err) {
@@ -55,7 +59,9 @@ export default class Account {
 
 	async save() {
 		try {
-			await jsonc.write(globals.ACCOUNT_FILE(this.uuid), this.serialize(), {space: '\t'});
+			await jsonc.write(globals.ACCOUNT_FILE(this.uuid), this.serialize(), {
+				space: "\t",
+			});
 		} catch (err) {
 			logger.error(`Error saving account ${this.username}: ${err}`);
 		}

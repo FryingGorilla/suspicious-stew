@@ -1,6 +1,6 @@
-import {Column, Entity, PrimaryGeneratedColumn} from 'typeorm';
+import { Column, Entity, PrimaryGeneratedColumn } from "typeorm";
 
-@Entity('flipper_metrics')
+@Entity("flipper_metrics")
 export class Metrics {
 	@PrimaryGeneratedColumn()
 	id!: number;
@@ -26,20 +26,20 @@ export class Metrics {
 	onlineMembers!: string;
 	@Column()
 	cookieBuffTime!: number;
-	@Column({nullable: true})
+	@Column({ nullable: true })
 	startingTotal!: number;
-	@Column({nullable: true})
+	@Column({ nullable: true })
 	startingUsedDailyLimit!: number;
-	@Column({nullable: true})
+	@Column({ nullable: true })
 	profit!: number;
-	@Column({nullable: true})
+	@Column({ nullable: true })
 	email!: string;
 	@Column()
 	uuid!: string;
-	@Column({nullable: true})
+	@Column({ nullable: true })
 	username!: string;
 	@Column()
-	configPath!: string;
+	config!: string;
 	@Column()
 	hasCookie!: boolean;
 	@Column()
