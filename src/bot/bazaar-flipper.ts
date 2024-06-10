@@ -748,7 +748,7 @@ export default class BazaarFlipper {
 				}
 
 				await wait(1000);
-				if (bot.currentWindow) bot.closeWindow(bot.currentWindow);
+				bot.closeWindow(bot.inventory);
 				await wait(1000);
 
 				logger.debug("Consuming cookie...");
