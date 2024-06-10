@@ -768,6 +768,8 @@ export default class BazaarFlipper {
 					0,
 					waitForEvent(bot._client, "window_items")
 				);
+				await wait(1000);
+				if (bot.currentWindow) bot.closeWindow(bot.currentWindow);
 			} catch (err) {
 				logger.error(`Auto cookie failed: ${err}`);
 			} finally {
