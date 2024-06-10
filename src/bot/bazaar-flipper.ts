@@ -747,8 +747,13 @@ export default class BazaarFlipper {
 					return;
 				}
 
+				await wait(1000);
+				if (bot.currentWindow) bot.closeWindow(bot.currentWindow);
+				await wait(1000);
+
 				logger.debug("Consuming cookie...");
 				bot.setQuickBarSlot(0);
+				await wait(1000);
 				if (slot !== bot.quickBarSlot)
 					await bot.moveSlotItem(
 						slot,
@@ -765,6 +770,8 @@ export default class BazaarFlipper {
 				);
 			} catch (err) {
 				logger.error(`Auto cookie failed: ${err}`);
+			} finally {
+				this.cookieBuffTime = 0;
 			}
 		});
 	}

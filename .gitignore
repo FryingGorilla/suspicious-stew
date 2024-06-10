@@ -5,3 +5,4 @@ executables
 
 .env
 .env.local
+scripts/sha256sum.txt

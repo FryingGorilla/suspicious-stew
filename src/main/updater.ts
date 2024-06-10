@@ -5,7 +5,6 @@ import { BIN_DIR, IS_IN_DEV, RELEASES_URL, globals } from "../shared/globals";
 import logger from "../shared/logger";
 import { execSync, spawn } from "child_process";
 import crypto from "crypto";
-import { execArgv } from "process";
 import { shutdown } from ".";
 import { Stream } from "stream";
 
@@ -19,13 +18,13 @@ const getSuffix = () => {
 
 export async function checkForUpdates() {
 	const { path: mainPath, existing } = await downloadLatest(
-		new RegExp(`^suspicious-stew-\\d+.\\d+.\\d+-${getSuffix()}$`),
+		new RegExp(`^suspicious-stew-\\d+.\\d+.\\d+-${getSuffix()}(.\\d+)?$`),
 		false,
 		IS_IN_DEV ? BIN_DIR : path.parse(process.execPath).dir
 	);
 	if (!existing) {
 		logger.info("Starting newer version...");
-		const p = spawn(mainPath, execArgv, {
+		const p = spawn(mainPath, process.argv.slice(2), {
 			detached: true,
 			stdio: "inherit",
 		});
@@ -34,11 +33,14 @@ export async function checkForUpdates() {
 		await shutdown();
 	}
 	botBinaryPath = (
-		await downloadLatest(new RegExp(`^bot-\\d+.\\d+.\\d+-${getSuffix()}$`))
+		await downloadLatest(
+			new RegExp(`^bot-\\d+.\\d+.\\d+-${getSuffix()}(.\\d+)?$`)
+		)
 	).path;
 }
 
 function calculateSHA256(filePath: string) {
+	logger.debug("Calculating sha255 for " + filePath);
 	return new Promise<string>((resolve, reject) => {
 		const hash = crypto.createHash("sha256");
 		const stream = fs.createReadStream(filePath);
@@ -53,15 +55,15 @@ const downloads: Record<string, { download: Promise<string>; url: string }> =
 	{};
 const downloadExecutable = async (
 	url: string,
-	filePath: string,
+	filename: string,
 	sha256: string,
 	directory: string
 ) => {
-	logger.info(`Downloading ${filePath} from ${url}`);
+	logger.info(`Downloading ${filename} from ${url}`);
 	let writer: fs.WriteStream | undefined = undefined;
 	try {
 		const response = await axios({ url, responseType: "stream" });
-		const fullPath = path.join(directory, filePath);
+		const fullPath = path.join(directory, filename);
 		await fs.promises.mkdir(directory, { recursive: true });
 
 		writer = fs.createWriteStream(fullPath);
@@ -74,11 +76,14 @@ const downloadExecutable = async (
 		if (!globals.IS_WINDOWS) {
 			execSync(`chmod +x ${fullPath}`);
 		}
+		await new Promise<void>((res, rej) =>
+			writer?.close((err) => (err ? rej(err) : res()))
+		);
+
 		logger.info("Download finished");
-		writer.close();
-		if ((await calculateSHA256(filePath)) !== sha256) {
+		if ((await calculateSHA256(path.join(directory, filename))) !== sha256) {
 			logger.error("Download got corrupted, redownloading...");
-			await downloadExecutable(url, filePath, sha256, directory);
+			await downloadExecutable(url, filename, sha256, directory);
 		}
 		return fullPath;
 	} catch (err) {
@@ -134,36 +139,51 @@ const downloadLatest = async (
 	if (!(asset.name in sha256sum))
 		throw new Error(`No sha256 sum found for ${asset.name}`);
 
+	const getVer = (file: string) =>
+		Number(
+			// remove suffix
+			(file.match(/(\.\d+)$/)
+				? file.split(".").slice(0, -1).join(".")
+				: file
+			).replaceAll(/[^\d]/g, "")
+		);
+
 	if (!forceDownload) {
 		const files = await fs.promises.readdir(directory, {
 			withFileTypes: true,
 		});
 		const current = files
 			.filter((dirent) => dirent.isFile())
-			.find((f) => f.name === asset?.name);
+			.filter((f) => new RegExp(`^${asset?.name}(-\\d+)?$`).test(f.name))
+			.sort((a, b) => getVer(b.name) - getVer(a.name))
+			.at(0);
 		if (current?.name) {
-			try {
-				const currentPath = path.join(directory, current.name);
-				if ((await calculateSHA256(currentPath)) === sha256sum[asset.name])
-					return { path: currentPath, existing: true };
-			} catch (err) {
-				logger.error(`Failed to read ${current.name}.id: ${err}`);
+			const currentPath = path.join(directory, current.name);
+			if ((await calculateSHA256(currentPath)) === sha256sum[asset?.name])
+				return { path: currentPath, existing: true };
+			else {
+				const suffix = (Number(current.name.match(/-(\\d+)$/)?.[1]) || 0) + 1;
+				return {
+					path: await downloadExecutable(
+						asset?.browser_download_url,
+						asset?.name + "-" + suffix.toString(),
+						sha256sum[asset?.name],
+						directory
+					),
+					existing: false,
+				};
 			}
 		} else {
 			const possibleDev = files
-				.map((f) => ({ file: f, ver: Number(f.name.replaceAll(/[^\d]/g, "")) }))
+				.map((f) => ({ file: f, ver: getVer(f.name) }))
 				.sort((a, b) => {
 					if (!a.ver) return 1;
 					if (!b.ver) return -1;
-
 					return b.ver - a.ver;
 				})
 				.at(0);
-			if (
-				possibleDev?.ver &&
-				possibleDev.ver > Number(asset.name.replaceAll(/[^\d]/g, ""))
-			) {
-				logger.info("We are in the future!");
+			if (possibleDev?.ver && possibleDev.ver > getVer(asset?.name)) {
+				logger.info("We are in the future! (" + possibleDev.ver + ")");
 				return {
 					path: path.join(directory, possibleDev.file.name),
 					existing: true,
@@ -175,7 +195,7 @@ const downloadLatest = async (
 		path: await downloadExecutable(
 			asset.browser_download_url,
 			asset.name,
-			sha256sum[asset.name],
+			sha256sum[asset?.name],
 			directory
 		),
 		existing: false,
