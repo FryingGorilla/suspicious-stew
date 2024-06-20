@@ -24,14 +24,19 @@ router.get("/metrics", async (req, res) => {
 });
 
 router.get("/notifications", async (req, res) => {
-	const { account_uuid, limit, offset } = req.query;
+	const { account_uuid, limit, offset, sort } = req.query;
 	if (!account_uuid)
 		return res.status(400).json({ error: "No account_uuid provided" });
-	// TODO: Add order by
+
 	const query = AppDataSource.getRepository(Notification)
 		.createQueryBuilder("notification")
 		.where("notification.account_uuid = :account_uuid", { account_uuid })
-		.orderBy("notification.time", "DESC");
+		.orderBy(
+			sort?.toString().startsWith("level")
+				? "notification.level"
+				: "notification.time",
+			sort?.toString().endsWith("asc") ? "ASC" : "DESC"
+		);
 	if (offset !== undefined) query.offset(Number(offset.toString()));
 	if (limit !== undefined) query.limit(Number(limit.toString()));
 	const result = await query.getMany();

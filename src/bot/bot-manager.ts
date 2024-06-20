@@ -301,10 +301,15 @@ export default class BotManager {
 	}
 	async disconnect() {
 		logger.debug("Disconnecting");
-		this.shouldReconnect = false;
-		if (this.onlineStatus !== "offline") {
-			this.bot.quit();
-			await this.waitForBotEvent("end");
+		try {
+			this.shouldReconnect = false;
+			if (this.onlineStatus !== "offline") {
+				this.bot.quit();
+				await this.waitForBotEvent("end", -1);
+			}
+		} catch (err) {
+			await wait(5000);
+			await this.disconnect();
 		}
 	}
 
@@ -441,7 +446,7 @@ export default class BotManager {
 
 	lastClickTime = 0;
 	async clickSlot<T>(slot: number, mouseButton?: 0 | 1, promise?: Promise<T>) {
-		await wait(this.lastClickTime + 500 - Date.now());
+		await wait(this.lastClickTime + 250 - Date.now());
 		this.lastClickTime = Date.now();
 
 		const bot = this.bot;

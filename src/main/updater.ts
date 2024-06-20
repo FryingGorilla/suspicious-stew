@@ -51,8 +51,6 @@ function calculateSHA256(filePath: string) {
 	});
 }
 
-const downloads: Record<string, { download: Promise<string>; url: string }> =
-	{};
 const downloadExecutable = async (
 	url: string,
 	filename: string,
@@ -147,6 +145,7 @@ const downloadLatest = async (
 				: file
 			).replaceAll(/[^\d]/g, "")
 		);
+	const getSuffix = (file: string) => Number(file.match(/-(\\d+)$/)?.[1]) || 0;
 
 	if (!forceDownload) {
 		const files = await fs.promises.readdir(directory, {
@@ -155,18 +154,17 @@ const downloadLatest = async (
 		const current = files
 			.filter((dirent) => dirent.isFile())
 			.filter((f) => new RegExp(`^${asset?.name}(-\\d+)?$`).test(f.name))
-			.sort((a, b) => getVer(b.name) - getVer(a.name))
+			.sort((a, b) => getSuffix(b.name) - getSuffix(a.name))
 			.at(0);
 		if (current?.name) {
 			const currentPath = path.join(directory, current.name);
 			if ((await calculateSHA256(currentPath)) === sha256sum[asset?.name])
 				return { path: currentPath, existing: true };
 			else {
-				const suffix = (Number(current.name.match(/-(\\d+)$/)?.[1]) || 0) + 1;
 				return {
 					path: await downloadExecutable(
 						asset?.browser_download_url,
-						asset?.name + "-" + suffix.toString(),
+						asset?.name + "-" + (getSuffix(current.name) + 1),
 						sha256sum[asset?.name],
 						directory
 					),

@@ -251,14 +251,16 @@ export default class BazaarFlipper {
 						: this.manager.location === "lobby"
 						? "/skyblock"
 						: "/is";
-				await retry(5, async () => {
-					await wait(2000);
-					await this.manager.sendChat(message);
-					await manager.waitForBotEvent("spawn");
-				}).catch(() => {
+				try {
+					await retry(5, async () => {
+						await wait(2000);
+						await this.manager.sendChat(message);
+						await manager.waitForBotEvent("spawn");
+					});
+				} catch (err) {
 					logger.debug(`Disconnecting: Failed to warp`);
-					this.manager.bot.quit();
-				});
+					await this.manager.disconnect();
+				}
 			});
 		}
 
