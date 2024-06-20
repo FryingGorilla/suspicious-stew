@@ -145,7 +145,7 @@ const downloadLatest = async (
 				: file
 			).replaceAll(/[^\d]/g, "")
 		);
-	const getSuffix = (file: string) => Number(file.match(/-(\\d+)$/)?.[1]) || 0;
+	const getSuffix = (file: string) => Number(file.match(/-(\d+)$/)?.[1]) || 0;
 
 	if (!forceDownload) {
 		const files = await fs.promises.readdir(directory, {
