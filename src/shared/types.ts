@@ -127,6 +127,7 @@ export type ManagerUpdateData = {
 	readonly uuid: string;
 	readonly config: string;
 	readonly username?: string;
+	readonly proxyConfig?: ProxyConfig;
 
 	readonly hasCookie: boolean;
 	readonly onlineStatus: OnlineStatus;
@@ -192,4 +193,12 @@ export type BotConfigOptions = {
 		antiAfk: boolean;
 		npcMode: boolean;
 	};
+};
+
+export type ProxyConfig = {
+	username?: string;
+	password?: string;
+	host: string;
+	port: number;
+	type: "socks4" | "socks5" | "http";
 };

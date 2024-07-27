@@ -260,7 +260,7 @@ export function bazaarApi() {
 						);
 
 						const avgCycleTime =
-							(cycleCount ? elapsedTime / cycleCount : 1) / (60 * 60 * 1000);
+							elapsedTime / (cycleCount || 1) / (60 * 60 * 1000);
 						const margin = sellPrice * 0.99 - buyPrice;
 						const amount = Math.floor(
 							Math.min(usageLeft / buyPrice, maxOrderSize, 71_680)
@@ -274,15 +274,15 @@ export function bazaarApi() {
 							sellPrice *
 							Math.min(1 / avgCycleTime, hourlySellUndercuts);
 
-						// For buy orders
-						// Sell offers are always going to have more uptime than buy offers
-						const avgUndercutTime = 1 / Math.max(1, hourlyBuyUndercuts);
-						const uptime =
-							Math.max(avgCycleTime, avgCycleTime - avgUndercutTime) /
-							avgCycleTime;
+						// Calculate only for buy orders
+						// Sell offers are always going to have more uptime than buy orders
+						const avgUndercutTime = 1 / hourlyBuyUndercuts;
+						const uptime = Math.min(1, avgUndercutTime / avgCycleTime);
 
 						const profitability =
-							margin * Math.min(hourlyBuyMovement, hourlySellMovement) * uptime;
+							margin *
+							Math.min(hourlyBuyMovement, hourlySellMovement) *
+							uptime ** 2; // Punish competing
 
 						return {
 							id,
@@ -387,7 +387,7 @@ export function bazaarApi() {
 				};
 			};
 			const items = await getItems();
-			const divider = remainingDailyLimit / 5000;
+			const divider = remainingDailyLimit / 1000;
 			const { maxValue, selectedIndices } = solve(
 				items?.map((item) => ({
 					id: item.id,

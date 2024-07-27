@@ -5,13 +5,12 @@ import axios from "axios";
 import ngrok, { Ngrok } from "ngrok";
 import path from "path";
 import fs from "fs";
-import { spawn, execSync } from "child_process";
+import { execSync } from "child_process";
 import os from "os";
 import ip from "ip";
 import Server from "./server";
 import { AppDataSource } from "./db/data-source";
 import BotConfig from "../shared/bot-config";
-import { checkForUpdates } from "./updater";
 
 let lastEx: Error;
 let lastExTime = 0;
@@ -62,7 +61,6 @@ events.forEach((event) => {
 async function main() {
 	if (globals.IS_IN_DEV) logger.info("Running in development mode");
 	createFolders();
-	await checkForUpdates();
 
 	await config.prompt();
 	config.save();

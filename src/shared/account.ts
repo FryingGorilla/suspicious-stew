@@ -2,16 +2,19 @@ import logger from "./logger";
 import { DEFAULT_CONFIG_FILE, globals } from "./globals";
 import { Authflow, Titles, ServerDeviceCodeResponse } from "prismarine-auth";
 import { jsonc } from "jsonc";
+import { ProxyConfig } from "./types";
 
 export default class Account {
 	email?: string;
 	username?: string;
 	config = DEFAULT_CONFIG_FILE;
+	proxyConfig?: ProxyConfig;
 
 	static async createAccount(
 		email: string,
 		config: string,
-		codeCallback: (code: ServerDeviceCodeResponse) => void
+		codeCallback: (code: ServerDeviceCodeResponse) => void,
+		proxyConfig?: ProxyConfig
 	): Promise<string | null> {
 		try {
 			const authFlow = new Authflow(
@@ -34,6 +37,7 @@ export default class Account {
 				username: profile.name,
 				config,
 				uuid: profile.id,
+				proxyConfig,
 			};
 			await jsonc.write(globals.ACCOUNT_FILE(profile.id), data, {
 				space: "\t",
@@ -54,6 +58,7 @@ export default class Account {
 			email: this.email,
 			username: this.username,
 			config: this.config,
+			proxyConfig: this.proxyConfig,
 		};
 	}
 
@@ -74,6 +79,7 @@ export default class Account {
 			this.email = data.email;
 			this.username = data.username;
 			this.config = data.config ?? globals.DEFAULT_CONFIG_FILE;
+			this.proxyConfig = data.proxyConfig;
 		} catch (err) {
 			logger.error(`Error loading account ${this.uuid}: ${err}`);
 		}

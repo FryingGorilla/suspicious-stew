@@ -63,11 +63,11 @@ export default class BazaarFlipper {
 		}, 3 * 60 * 1000);
 
 		const runId = this.runId;
-		while (
-			this.state === "running" &&
-			this.runId === runId &&
-			!this.manager.banned
-		) {
+		while (this.state === "running" && this.runId === runId) {
+			if (this.manager.banned) {
+				this.stop();
+				break;
+			}
 			try {
 				if (this.isScheduled()) {
 					if (this.isInTimeout) {
@@ -444,7 +444,11 @@ export default class BazaarFlipper {
 						manager.bazaar.getRemainingLimit(),
 						remainingTime / 60 / 60 / 1000,
 						manager.bazaar.orders,
-						this.timer.getElapsedTime(),
+						// Millis since 00:00
+						Math.min(
+							this.timer.getElapsedTime(),
+							new Date().setFullYear(1970, 0, 1)
+						),
 						this.cycles
 					);
 					logger.debug([

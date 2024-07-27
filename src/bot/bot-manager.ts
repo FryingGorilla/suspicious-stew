@@ -1,4 +1,4 @@
-import { Bot, BotEvents, createBot } from "mineflayer";
+import { Bot, BotEvents, BotOptions, createBot } from "mineflayer";
 import Account from "../shared/account";
 import {
 	ChildEvents,
@@ -22,6 +22,10 @@ import Bazaar from "./bazaar";
 import { PROMISE_TIMEOUT, globals } from "../shared/globals";
 import { Vec3 } from "vec3";
 import { findItemSlot } from "./bot-utils";
+import { SocksClient } from "socks";
+import http from "http";
+import { HttpProxyAgent } from "http-proxy-agent";
+import { SocksProxyAgent } from "socks-proxy-agent";
 
 export default class BotManager {
 	onlineStatus: OnlineStatus = "offline";
@@ -109,12 +113,6 @@ export default class BotManager {
 			(reason?: string) => {
 				logger.debug(`Kicked: ${reason}`);
 				this.onlineStatus = "offline";
-				this.postUpdate();
-				this.postNotification(
-					"Kicked",
-					`Kicked, reason: ${reason ?? "No reason provided"}`,
-					3
-				);
 				if (JSON.stringify(reason).includes("banned")) {
 					this.postNotification(
 						"BANNED",
@@ -122,9 +120,15 @@ export default class BotManager {
 						3
 					);
 					this.banned = true;
-					this.postUpdate();
 					this.disconnect();
+				} else {
+					this.postNotification(
+						"Kicked",
+						`Kicked, reason: ${reason ?? "No reason provided"}`,
+						3
+					);
 				}
+				this.postUpdate();
 			},
 			{ persistent: true }
 		);
@@ -221,10 +225,7 @@ export default class BotManager {
 
 	serialize(): ManagerUpdateData {
 		return {
-			email: this.account.email,
-			uuid: this.account.uuid,
-			username: this.account.username,
-			config: this.account.config,
+			...this.account.serialize(),
 			onlineStatus: this.onlineStatus,
 			location: this.location,
 			hasCookie: this.hasCookie,
@@ -314,27 +315,31 @@ export default class BotManager {
 	}
 
 	async connect() {
-		const host = "hypixel.net";
-
+		const server = {
+			host: "mc.hypixel.net",
+			port: 25565,
+			toString() {
+				return this.host + ":" + this.port;
+			},
+		};
 		logger.debug("Connecting...");
 
 		this.shouldReconnect = true;
 		if (this.onlineStatus !== "offline") return;
-		this.postNotification("Connecting", `Connecting to ${host}`, 1);
+		this.postNotification("Connecting", `Connecting to ${server}`, 1);
 
 		try {
 			this.onlineStatus = "connecting";
 			this.postUpdate();
 
-			const bot = createBot({
-				host,
-				port: 25565,
+			const options: BotOptions = {
 				username: this.account.email ?? "unknown",
 				version: "1.8.9",
 				auth: "microsoft",
 				profilesFolder: globals.ACCOUNT_CACHE_DIR(
 					this.account.email ?? "unknown"
 				),
+				logErrors: false,
 				onMsaCode: (res) => {
 					logger.debug(JSON.stringify(res));
 					logger.info(
@@ -354,15 +359,104 @@ export default class BotManager {
 						3
 					);
 				},
-			});
+			};
+			const { proxyConfig } = this.account;
+			if (proxyConfig) {
+				const proxyUrl = new URL(
+					`${proxyConfig.type}://${proxyConfig.host}:${proxyConfig.port}`
+				);
+				if (proxyConfig.username) proxyUrl.username = proxyConfig.username;
+				if (proxyConfig.password) proxyUrl.password = proxyConfig.password;
+
+				options.fakeHost = server.host;
+				options.connect = (client) => {
+					if (proxyConfig.type === "http") {
+						options.agent = new HttpProxyAgent(proxyUrl);
+
+						http
+							.request({
+								host: proxyConfig.host,
+								port: proxyConfig.port,
+								method: "CONNECT",
+								path: server.toString(),
+								headers: {
+									"Proxy-Authorization":
+										"Basic " +
+										Buffer.from(
+											proxyConfig.username + ":" + proxyConfig.password
+										).toString("base64"),
+								},
+								timeout: 20_000,
+							})
+							.on("connect", (res, socket) => {
+								if (res.statusCode === 200) {
+									client.setSocket(socket);
+									client.emit("connect");
+								} else
+									client.emit(
+										"error",
+										new Error(
+											`Failed to connect to proxy: ${res.statusCode} ${res.statusMessage}`
+										)
+									);
+							})
+							.on("error", (err) => {
+								client.emit(
+									"error",
+									new Error(`Failed to connect to proxy: ${err}`)
+								);
+							})
+							.end();
+					} else {
+						options.agent = new SocksProxyAgent(proxyUrl);
+						SocksClient.createConnection(
+							{
+								proxy: {
+									host: proxyConfig.host,
+									port: proxyConfig.port,
+									type: proxyConfig.type === "socks4" ? 4 : 5,
+									userId: proxyConfig.username,
+									password: proxyConfig.password,
+								},
+								command: "connect",
+								destination: {
+									...server,
+								},
+							},
+							(err, info) => {
+								if (err || !info) {
+									client.emit(
+										"error",
+										new Error(
+											`Error connecting through proxy: ${err ?? "no info"}`
+										)
+									);
+									return;
+								}
+								client.setSocket(info.socket);
+								client.emit("connect");
+							}
+						);
+					}
+				};
+			} else {
+				options.port = server.port;
+				options.host = server.host;
+			}
+
+			const bot = createBot(options);
 			logger.debug("Applying persistent actions to bot");
 			this.bot = this.applyPersistentActions(bot);
 
 			await this.waitForBotEvent("login", 30_000);
 		} catch (err) {
 			this.onlineStatus = "offline";
+			this.postUpdate();
 			logger.error(`Error logging in with ${this.account.username}: ${err}`);
-			setTimeout(() => this.shouldReconnect && this.connect(), 10000);
+			setTimeout(
+				() => this.shouldReconnect && this.connect(),
+				5 * 60 * 60 * 1000 // Stupid 429
+			);
 		}
 	}
 

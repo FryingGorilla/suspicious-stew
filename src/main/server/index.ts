@@ -5,12 +5,11 @@ import path from "path";
 import cors from "cors";
 import router from "./routes";
 import compression from "compression";
-import { ChildEvents, ChildToMain } from "../../shared/types";
+import { ChildEvents, ChildToMain, ProxyConfig } from "../../shared/types";
 import { ExtendedError } from "socket.io/dist/namespace";
 import http from "http";
 import { IS_IN_DEV, globals } from "../../shared/globals";
 import { ChildProcess, spawn } from "child_process";
-import { getBotBinaryPath } from "../updater";
 import Config from "../main-config";
 import { bazaarApi } from "../db/bazaar-api";
 import Account from "../../shared/account";
@@ -36,6 +35,7 @@ export default class Server {
 			email?: string;
 			uuid: string;
 			config?: string;
+			proxyConfig?: ProxyConfig;
 			username?: string;
 		};
 		process: ChildProcess;
@@ -117,7 +117,7 @@ export default class Server {
 
 	public async addAccount(uuid: string) {
 		const { io, accounts } = this;
-		const command = IS_IN_DEV ? "node" : getBotBinaryPath();
+		const command = IS_IN_DEV ? "node" : Config.option("botPath");
 		if (!command) return;
 
 		const args = ["--uuid", uuid];
@@ -152,10 +152,7 @@ export default class Server {
 				switch (mes.event as ChildEvents) {
 					case "manager-update": {
 						const { data } = mes as ChildToMain<"manager-update">;
-						const { account } = accounts[index];
-						account.config = data.config;
-						account.username = data.username;
-						account.email = data.email;
+						accounts[index].account = data;
 						break;
 					}
 					case "flipper-metrics": {

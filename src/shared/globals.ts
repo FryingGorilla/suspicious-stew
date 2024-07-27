@@ -16,7 +16,8 @@ declare global {
 }
 
 export const RELEASES_URL =
-	"https://api.github.com/repos/FryingGorilla/suspicious-stew/releases/latest";
+	"https://api.github.com/repos/FryingGorilla/suspicious-stew/releases/";
+export const LATEST_RELEASE_URL = RELEASES_URL + "latest";
 export const IS_WINDOWS = type() === "Windows_NT";
 export const IS_IN_DEV =
 	process.pkg === undefined && process.env.NODE_ENV !== "production";

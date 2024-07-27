@@ -1,0 +1,17 @@
+{
+    "bin": "../../dist/launcher/index.js",
+    "pkg": {
+        "scripts": [
+            "../../dist/launcher/**/*.js",
+            "../../dist/shared/**/*.js"
+        ],
+        "targets": [
+            "node18-win-x64",
+            "node18-macos-x64",
+            "node18-linux-x64"
+        ],
+        "assets": [
+            "../../node_modules/axios/dist/node/axios.cjs"
+        ]
+    }
+}

@@ -50,6 +50,8 @@ async function main() {
 				100
 			)}`
 		);
+		if (wrapper.listenerCount(event) === 0)
+			logger.debug(`Invalid event: ${event}`);
 		wrapper.emit(event, args);
 	});
 
@@ -98,5 +100,19 @@ async function main() {
 		} catch (err) {
 			logger.error(String(err));
 		}
+	});
+
+	wrapper.on("botManager::proxy::set", async ({ proxyConfig }) => {
+		const shouldReconnect = botManager.onlineStatus !== "offline";
+		if (shouldReconnect) await botManager.disconnect();
+		account.proxyConfig = proxyConfig
+			? {
+					...proxyConfig,
+					port: parseInt(proxyConfig.port),
+			  }
+			: undefined;
+		if (shouldReconnect) await botManager.connect();
+		await account.save();
+		botManager.postUpdate();
 	});
 }

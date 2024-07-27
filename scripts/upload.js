@@ -42,7 +42,7 @@ async function main() {
 		.filter((d) => d.name.includes(ver))
 		.map((d) => path.join(d.path, d.name));
 
-	const sumFile = path.join(__dirname, "sha256sum.txt");
+	const sumFile = path.join(__dirname, "sha256sum.json");
 
 	const json =
 		"{" +
