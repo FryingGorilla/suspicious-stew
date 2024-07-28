@@ -447,7 +447,7 @@ export default class BazaarFlipper {
 						// Millis since 00:00
 						Math.min(
 							this.timer.getElapsedTime(),
-							new Date().setFullYear(1970, 0, 1)
+							new Date().setUTCFullYear(1970, 0, 1)
 						),
 						this.cycles
 					);

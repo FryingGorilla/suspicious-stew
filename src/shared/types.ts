@@ -200,5 +200,5 @@ export type ProxyConfig = {
 	password?: string;
 	host: string;
 	port: number;
-	type: "socks4" | "socks5" | "http";
+	type: "socks" | "http";
 };

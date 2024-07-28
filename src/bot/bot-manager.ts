@@ -363,29 +363,35 @@ export default class BotManager {
 			const { proxyConfig } = this.account;
 			if (proxyConfig) {
 				const proxyUrl = new URL(
-					`${proxyConfig.type}://${proxyConfig.host}:${proxyConfig.port}`
+					`${proxyConfig.type === "http" ? "http" : "socks"}://${
+						proxyConfig.host
+					}:${proxyConfig.port}`
 				);
 				if (proxyConfig.username) proxyUrl.username = proxyConfig.username;
 				if (proxyConfig.password) proxyUrl.password = proxyConfig.password;
 
 				options.fakeHost = server.host;
-				options.connect = (client) => {
-					if (proxyConfig.type === "http") {
-						options.agent = new HttpProxyAgent(proxyUrl);
-
+				if (proxyConfig.type === "http") {
+					options.agent = new HttpProxyAgent(proxyUrl);
+					options.connect = (client) => {
 						http
 							.request({
 								host: proxyConfig.host,
 								port: proxyConfig.port,
 								method: "CONNECT",
 								path: server.toString(),
-								headers: {
-									"Proxy-Authorization":
-										"Basic " +
-										Buffer.from(
-											proxyConfig.username + ":" + proxyConfig.password
-										).toString("base64"),
-								},
+								headers:
+									proxyConfig.username && proxyConfig.password
+										? {
+												"Proxy-Authorization":
+													"Basic " +
+													Buffer.from(
+														decodeURIComponent(proxyConfig.username) +
+															":" +
+															decodeURIComponent(proxyConfig.password)
+													).toString("base64"),
+										  }
+										: undefined,
 								timeout: 20_000,
 							})
 							.on("connect", (res, socket) => {
@@ -407,14 +413,16 @@ export default class BotManager {
 								);
 							})
 							.end();
-					} else {
-						options.agent = new SocksProxyAgent(proxyUrl);
+					};
+				} else {
+					options.agent = new SocksProxyAgent(proxyUrl);
+					options.connect = (client) => {
 						SocksClient.createConnection(
 							{
 								proxy: {
 									host: proxyConfig.host,
 									port: proxyConfig.port,
-									type: proxyConfig.type === "socks4" ? 4 : 5,
+									type: 5,
 									userId: proxyConfig.username,
 									password: proxyConfig.password,
 								},
@@ -437,8 +445,8 @@ export default class BotManager {
 								client.emit("connect");
 							}
 						);
-					}
-				};
+					};
+				}
 			} else {
 				options.port = server.port;
 				options.host = server.host;

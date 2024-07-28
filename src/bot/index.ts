@@ -50,8 +50,6 @@ async function main() {
 				100
 			)}`
 		);
-		if (wrapper.listenerCount(event) === 0)
-			logger.debug(`Invalid event: ${event}`);
 		wrapper.emit(event, args);
 	});
 
