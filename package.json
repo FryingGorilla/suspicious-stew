@@ -8,9 +8,9 @@
   "launcherVersion": "0.0.4",
   "private": true,
   "scripts": {
-    "dev": "ts-node-dev --cls --respawn --transpile-only --exit-child --watch src -- src/main/index.ts --nq",
+    "dev": "ts-node-dev --cls --respawn --transpile-only --exit-child --watch src -- src/main/index.ts -nq",
     "ts-node": "ts-node --transpile-only src/main/index.ts",
-    "start": "yarn && tsc && cross-env NODE_ENV=production node ./dist/main/index.js --nq",
+    "start": "yarn && tsc && yarn package:bot && cross-env NODE_ENV=production node ./dist/main/index.js -nq executables/bot/bot-$npm_package_botVersion",
     "test": "echo \"Error: no test specified\" && exit 1",
     "build": "yarn && tsc && yarn package",
     "package": "concurrently \"yarn package:main\" \"yarn package:bot\" \"yarn package:launcher\"",

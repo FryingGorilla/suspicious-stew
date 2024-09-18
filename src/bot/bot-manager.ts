@@ -150,7 +150,7 @@ export default class BotManager {
 				);
 
 				if (this.shouldReconnect) {
-					const delay = 10_000;
+					const delay = 60 * 1000;
 					logger.debug(`Reconnecting in ${delay}ms`);
 
 					setTimeout(() => {
@@ -300,6 +300,13 @@ export default class BotManager {
 	) {
 		return waitForEvent(this.bot, eventName, timeout);
 	}
+
+	async reconnect(delay = 10_000) {
+		await this.disconnect();
+		await wait(delay);
+		await this.connect();
+	}
+
 	async disconnect() {
 		logger.debug("Disconnecting");
 		try {
@@ -309,6 +316,7 @@ export default class BotManager {
 				await this.waitForBotEvent("end", -1);
 			}
 		} catch (err) {
+			logger.error(`Failed to disconnect: ${err}. trying again in 5s`);
 			await wait(5000);
 			await this.disconnect();
 		}
@@ -374,26 +382,26 @@ export default class BotManager {
 				if (proxyConfig.type === "http") {
 					options.agent = new HttpProxyAgent(proxyUrl);
 					options.connect = (client) => {
+						const options: http.RequestOptions = {
+							host: proxyConfig.host,
+							port: proxyConfig.port,
+							method: "CONNECT",
+							path: server.toString(),
+							timeout: 20_000,
+						};
+						if (proxyConfig.username && proxyConfig.password)
+							options.headers = {
+								"Proxy-Authorization":
+									"Basic " +
+									Buffer.from(
+										decodeURIComponent(proxyConfig.username) +
+											":" +
+											decodeURIComponent(proxyConfig.password)
+									).toString("base64"),
+							};
+
 						http
-							.request({
-								host: proxyConfig.host,
-								port: proxyConfig.port,
-								method: "CONNECT",
-								path: server.toString(),
-								headers:
-									proxyConfig.username && proxyConfig.password
-										? {
-												"Proxy-Authorization":
-													"Basic " +
-													Buffer.from(
-														decodeURIComponent(proxyConfig.username) +
-															":" +
-															decodeURIComponent(proxyConfig.password)
-													).toString("base64"),
-										  }
-										: undefined,
-								timeout: 20_000,
-							})
+							.request(options)
 							.on("connect", (res, socket) => {
 								if (res.statusCode === 200) {
 									client.setSocket(socket);
@@ -463,7 +471,7 @@ export default class BotManager {
 			logger.error(`Error logging in with ${this.account.username}: ${err}`);
 			setTimeout(
 				() => this.shouldReconnect && this.connect(),
-				5 * 60 * 60 * 1000 // Stupid 429
+				30 * 60 * 1000 // Stupid 429
 			);
 		}
 	}
@@ -525,6 +533,7 @@ export default class BotManager {
 		this.bot.chat(message);
 	}
 
+	signFails = 0;
 	async writeToSign(data: string) {
 		try {
 			const bot = this.bot;
@@ -541,7 +550,11 @@ export default class BotManager {
 			const block = bot.blockAt(new Vec3(x, y, z));
 			if (!block) throw new Error("block not found");
 			bot.updateSign(block, data.substring(0, 15));
+			this.signFails = 0;
 		} catch (err) {
+			if (this.signFails > 5) {
+				await this.reconnect();
+			} else this.signFails++;
 			throw new Error(`Failed to write to sign: ${err}`);
 		}
 	}

@@ -41,6 +41,7 @@ export function bazaarApi() {
 		},
 	};
 	const fetchProducts = async (): Promise<HypixelProducts> => {
+		logger.debug(`Products cache age ${Date.now() - cache.products.time}`);
 		if (Date.now() - cache.products.time > cache.products.maxAge) {
 			try {
 				const {
@@ -259,25 +260,20 @@ export function bazaarApi() {
 							budget / orderCount
 						);
 
-						const avgCycleTime =
-							elapsedTime / (cycleCount || 1) / (60 * 60 * 1000);
+						const cyclesHour =
+							((cycleCount + 1) * (60 * 60 * 1000)) / elapsedTime;
+
 						const margin = sellPrice * 0.99 - buyPrice;
 						const amount = Math.floor(
 							Math.min(usageLeft / buyPrice, maxOrderSize, 71_680)
 						);
 						const buyUsage =
-							amount *
-							buyPrice *
-							Math.min(1 / avgCycleTime, hourlyBuyUndercuts);
-						const sellUsage =
-							amount *
-							sellPrice *
-							Math.min(1 / avgCycleTime, hourlySellUndercuts);
+							amount * buyPrice * Math.min(cyclesHour, hourlyBuyUndercuts);
+						const sellUsage = amount * sellPrice * hourlySellUndercuts;
 
-						// Calculate only for buy orders
-						// Sell offers are always going to have more uptime than buy orders
-						const avgUndercutTime = 1 / hourlyBuyUndercuts;
-						const uptime = Math.min(1, avgUndercutTime / avgCycleTime);
+						const uptime =
+							cyclesHour /
+							(cyclesHour + Math.max(hourlyBuyUndercuts, hourlySellUndercuts));
 
 						const profitability =
 							margin *
@@ -460,7 +456,6 @@ export function bazaarApi() {
 								price: pricePerUnit,
 							};
 						}),
-						// TODO: Fix
 						instantBuyPrice: product.quick_status.buyPrice,
 						instantSellPrice: product.quick_status.sellPrice,
 					};

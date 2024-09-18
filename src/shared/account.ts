@@ -80,6 +80,8 @@ export default class Account {
 			this.username = data.username;
 			this.config = data.config ?? globals.DEFAULT_CONFIG_FILE;
 			this.proxyConfig = data.proxyConfig;
+			if (this.proxyConfig)
+				this.proxyConfig.port = parseInt(data.proxyConfig.port);
 		} catch (err) {
 			logger.error(`Error loading account ${this.uuid}: ${err}`);
 		}

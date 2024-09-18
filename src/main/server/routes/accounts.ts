@@ -19,7 +19,7 @@ router.get("/", (req, res) => {
 router.post("/add", async (req, res) => {
 	const { email, configPath, proxyConfig } = req.body;
 	if (!email) return res.status(400).json({ error: "No email provided" });
-
+	if (proxyConfig) proxyConfig.port = parseInt(proxyConfig.port);
 	const uuid = await Account.createAccount(
 		email,
 		configPath,
@@ -49,6 +49,14 @@ router.post("/delete", async (req, res) => {
 	const result = await Server.get().removeAccount(uuid);
 	if (!result) return res.status(404).json({ error: "Account not found" });
 
+	res.json({ message: "OK", accounts: mapAccounts() });
+});
+
+router.post("/restart", async (req, res) => {
+	const { uuid } = req.body;
+	if (!uuid) return res.status(400).json({ error: "No uuid provided" });
+	const result = await Server.get().restartProcess(uuid);
+	if (!result) return res.status(404).json({ error: "Account not found" });
 	res.json({ message: "OK", accounts: mapAccounts() });
 });
 

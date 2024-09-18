@@ -19,11 +19,13 @@ process.on("uncaughtException", (ex) => {
 	lastEx = ex;
 	lastExTime = Date.now();
 
-	logger.error([
-		`Uncaught exception from main: ${ex.message}`,
-		`Caused by: ${ex.cause ?? "none"}`,
-		`Stack: ${ex.stack ?? "none"}`,
-	]);
+	try {
+		logger.error([
+			`Uncaught exception from main: ${ex.message}`,
+			`Caused by: ${ex.cause ?? "none"}`,
+			`Stack: ${ex.stack ?? "none"}`,
+		]);
+	} catch (err) {}
 });
 
 const config = Config.get();

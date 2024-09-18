@@ -258,8 +258,10 @@ export default class BazaarFlipper {
 						await manager.waitForBotEvent("spawn");
 					});
 				} catch (err) {
-					logger.debug(`Disconnecting: Failed to warp`);
+					logger.debug(`Reconnecting: Failed to warp`);
 					await this.manager.disconnect();
+					await wait(10_000);
+					await this.manager.connect();
 				}
 			});
 		}
@@ -488,7 +490,7 @@ export default class BazaarFlipper {
 					(Math.min(
 						this.timer.getElapsedTime(),
 						// Millis since 00:00
-						new Date().setFullYear(1970, 0, 1)
+						new Date().setUTCFullYear(1970, 0, 1)
 					) -
 						this.totalWaitTime -
 						this.totalTimeout) /

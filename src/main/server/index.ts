@@ -84,8 +84,8 @@ export default class Server {
 
 		app.use("/api", router);
 
-		// eslint-disable-next-line @typescript-eslint/no-unused-vars
 		app.use(
+			// eslint-disable-next-line @typescript-eslint/no-unused-vars
 			(err: Error, req: Request, res: Response, _next: () => void): void => {
 				logger.error(`An error occurred: ${err.stack}`);
 				res.status(500).send("Something broke!");
@@ -115,10 +115,10 @@ export default class Server {
 		return this.accounts;
 	}
 
-	public async addAccount(uuid: string) {
-		const { io, accounts } = this;
+	private spawnProcess(uuid: string) {
 		const command = IS_IN_DEV ? "node" : Config.option("botPath");
-		if (!command) return;
+		if (!command) throw new Error("No bot path provided");
+		const { accounts, io } = this;
 
 		const args = ["--uuid", uuid];
 		if (IS_IN_DEV)
@@ -131,14 +131,16 @@ export default class Server {
 			);
 
 		logger.debug(`Spawning process for ${uuid}: ${command} ${args.join(" ")}`);
-		let child = spawn(command, args, {
+		const child = spawn(command, args, {
 			stdio: ["inherit", "inherit", "inherit", "ipc"],
 		});
 
 		child.setMaxListeners(50);
-		child.on("spawn", () => logger.debug(`Process for ${uuid} online`));
+		child.on("spawn", () =>
+			logger.debug(`Process ${child.pid} (${uuid}) online`)
+		);
 		child.on("error", (err) =>
-			logger.error(`Process for ${uuid} errored: ${err}`)
+			logger.error(`Process for ${child.pid} (${uuid}) errored: ${err}`)
 		);
 		child.on("message", (mes) => {
 			const index = accounts.findIndex(({ account }) => account.uuid === uuid);
@@ -233,20 +235,13 @@ export default class Server {
 			}
 		});
 
-		const account = await new Account(uuid).load();
-		accounts.push({
-			process: child,
-			account: account.serialize(),
-		});
-
 		if (!(uuid in this.namespaces)) {
 			this.namespaces[uuid] = io
 				.of(uuid)
 				.use(socketMiddleware(Config.get().options.password));
 		}
-
-		const connectionListener = (socket: Socket) => {
-			logger.debug(`Socket ${socket.id} connected to ${uuid}`);
+		this.namespaces[uuid].on("connection", (socket: Socket) => {
+			logger.debug(`Socket ${socket.id} connected to ${child.pid} (${uuid})`);
 
 			socket.onAny((event, ...args) => {
 				child.send({ event, ...args[0] });
@@ -264,15 +259,48 @@ export default class Server {
 			child.on("exit", disconnect);
 
 			socket.on("disconnect", () => {
-				logger.debug(`Socket ${socket.id} disconnected from ${uuid}`);
+				logger.debug(
+					`Socket ${socket.id} disconnected from ${child.pid} (${uuid})`
+				);
 				child.off("message", listener);
 				child.off("exit", disconnect);
 			});
-		};
-		this.namespaces[uuid].on("connection", connectionListener);
+		});
 		child.on("exit", (code) => {
-			logger.debug(`Process for ${uuid} exited with code ${code}`);
-			this.namespaces[uuid].off("connection", connectionListener);
+			logger.debug(
+				`Process for ${child.pid} (${uuid}) exited with code ${code}`
+			);
+
+			this.namespaces[uuid].disconnectSockets(true);
+			this.namespaces[uuid].removeAllListeners();
+			delete this.namespaces[uuid];
+		});
+
+		return child;
+	}
+
+	public async restartProcess(uuid: string) {
+		const acc = Server.get()
+			.getAccounts()
+			.find((a) => a.account.uuid === uuid);
+		if (!acc) return false;
+		if (!acc.process.kill())
+			throw new Error("Failed to kill process " + process.pid + " " + uuid);
+		await new Promise<void>((res) => {
+			acc.process.once("exit", res);
+		});
+		acc.process = this.spawnProcess(uuid);
+		await new Promise<void>((res) => {
+			acc.process.once("spawn", res);
+		});
+		return true;
+	}
+
+	public async addAccount(uuid: string) {
+		const account = await new Account(uuid).load();
+		this.accounts.push({
+			process: this.spawnProcess(uuid),
+			account: account.serialize(),
 		});
 	}
 
@@ -282,7 +310,11 @@ export default class Server {
 		);
 		if (index === -1) return false;
 		const { process } = this.accounts[index];
-		process.kill();
+		if (!process.kill())
+			throw new Error("Failed to kill process " + process.pid + " " + uuid);
+		await new Promise<void>((res) => {
+			process.once("exit", res);
+		});
 		this.accounts.splice(index, 1);
 		await fs.promises.rm(globals.ACCOUNT_FILE(uuid), { recursive: true });
 		logger.debug(`Removed account ${uuid}`);

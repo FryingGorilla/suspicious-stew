@@ -16,7 +16,7 @@ export default class Bazaar {
 	limitResetTime = 0;
 	products: Product[] = [];
 	orders: Order[] = [];
-	expectedOrders = 0;
+	expectedOrders?: number;
 
 	constructor(public manager: BotManager) {
 		manager.bot.on(
@@ -157,6 +157,7 @@ export default class Bazaar {
 
 			this.updateOrders();
 			if (
+				this.expectedOrders &&
 				((this.orders.length === 0 &&
 					this.expectedOrders !== this.orders.length) ||
 					Math.abs(this.orders.length - this.expectedOrders)) &&
@@ -164,7 +165,9 @@ export default class Bazaar {
 			) {
 				if (this.manager.bot.currentWindow)
 					this.manager.bot.closeWindow(this.manager.bot.currentWindow);
-				logger.debug("Expected ");
+				logger.debug(
+					`Expected ${this.expectedOrders} orders, found ${this.orders.length}`
+				);
 				await this.openManageOrders(retries - 1);
 			} else {
 				this.expectedOrders = this.orders.length;
@@ -336,7 +339,9 @@ export default class Bazaar {
 				this.usedDailyLimit += amount * price;
 				this.checkLimit();
 
+				this.expectedOrders ??= 0;
 				this.expectedOrders++;
+
 				await this.manager.clickItem(
 					order.type === "buy" ? "Buy Order" : "Sell Offer",
 					0,
@@ -379,7 +384,7 @@ export default class Bazaar {
 				await this.manager.clickSlot(slot);
 				if (bot.currentWindow?.title?.includes("Order options")) {
 					await this.manager.clickItem("Cancel Order");
-					this.expectedOrders--;
+					if (this.expectedOrders) this.expectedOrders--;
 					return;
 				}
 			}
@@ -410,7 +415,8 @@ export default class Bazaar {
 			) {
 				await this.manager.clickSlot(slot);
 			}
-			if (this.findOrderSlot(order) !== slot) this.expectedOrders--;
+			if (this.findOrderSlot(order) !== slot && this.expectedOrders)
+				this.expectedOrders--;
 		} catch (err) {
 			throw new Error(`Failed to claim order ${JSON.stringify(order)}: ${err}`);
 		}
@@ -633,8 +639,9 @@ export default class Bazaar {
 		return orders;
 	}
 	sortOrders() {
-		for (const order of this.orders)
+		for (const order of this.orders) {
 			order.undercutAmount = this.getUndercutAmount(order);
+		}
 		this.orders.sort((a, b) => {
 			if (
 				a.undercutAmount === undefined ||
@@ -749,55 +756,48 @@ export default class Bazaar {
 		if (order.filled) return 0;
 
 		const product = this.getProduct(order.productId);
-		if (product == null) throw Error("Product not found for getUndercutAmount");
+		if (product == null)
+			throw Error("Product not found for " + order.productId);
 		if (order.amount === undefined)
-			throw Error("Order amount undefined for getUndercutAmount");
+			throw Error("Order amount undefined for " + JSON.stringify(order));
 		if (order.price === undefined)
-			throw Error("Order price undefined for getUndercutAmount");
+			throw Error("Order price undefined for " + JSON.stringify(order));
 
-		let amount = 0;
-		const orders = this.orders;
+		const { price, productId } = order;
 
-		for (const order1 of order.type === "buy"
-			? product.buyOrders
-			: product.sellOrders) {
-			if (order1.amount === undefined || order1.price === undefined) continue;
-			if (order.type === "buy" && order.price > order1.price) break;
-			if (order.type === "sell" && order.price < order1.price) break;
+		const sameOrders = this.orders.filter(
+			(o) =>
+				o.productId === productId &&
+				!o.filled &&
+				o.type === order.type &&
+				o.price === price
+		);
 
-			if (order.price === order1.price) {
-				if (order.amount === order1.amount) continue;
+		const competingOrders = (
+			order.type === "buy"
+				? product.buyOrders.filter(
+						(o) => o.amount && o.price && o.price >= price
+				  )
+				: product.sellOrders.filter(
+						(o) => o.amount && o.price && o.price <= price
+				  )
+		).filter(
+			(a) =>
+				!sameOrders.find((b) => a.amount === b.amount && a.price === b.price)
+		);
+
+		return competingOrders.reduce((sum, competingOrder) => {
+			if (competingOrder.price === price) {
 				const diff =
-					order1.amount -
-					orders.reduce((prev, e) => {
-						if (
-							e.productId === order.productId &&
-							!e.filled &&
-							e.price === order.price &&
-							e.type === order.type
-						)
-							return prev + (e.amount ?? 0);
-						return prev;
-					}, 0);
-				amount += diff;
-			} else {
-				if (
-					orders.find(
-						(e) =>
-							e.productId === order.productId &&
-							!e.filled &&
-							e.amount === order1.amount &&
-							e.price === order1.price &&
-							e.type === order1.type
-					) !== undefined
-				)
-					continue;
-
-				amount += order1.amount;
-			}
-		}
-
-		return amount;
+					competingOrder.amount! -
+					sameOrders.reduce(
+						(sum, o) =>
+							o.price === competingOrder.price ? sum + o.amount! : sum,
+						0
+					);
+				return sum + diff;
+			} else return sum + competingOrder.amount!;
+		}, 0);
 	}
 
 	getProduct(id: string): Product | undefined {
